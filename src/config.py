@@ -6,6 +6,7 @@ so the pipeline still works if the file is missing or incomplete.
 """
 
 import copy
+import os
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -104,3 +105,20 @@ def resolve_path(relative: str, root: Path = PROJECT_ROOT) -> Path:
     """Turn a config path such as 'data/raw' into an absolute path under the project root."""
     p = Path(relative)
     return p if p.is_absolute() else root / p
+
+
+def get_soc_data_dir() -> Path:
+    """
+    Returns the base directory for mutable runtime data.
+    When SOC_DATA_DIR is configured (e.g. /var/data on Render), uses that directory.
+    Otherwise defaults to PROJECT_ROOT / "data".
+    Safely creates the directory if it does not already exist.
+    """
+    soc_data = os.environ.get("SOC_DATA_DIR")
+    if soc_data and soc_data.strip():
+        d = Path(soc_data.strip()).resolve()
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+    d = PROJECT_ROOT / "data"
+    d.mkdir(parents=True, exist_ok=True)
+    return d

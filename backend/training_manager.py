@@ -28,13 +28,43 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import confusion_matrix
 import joblib
 
-from src.config import PROJECT_ROOT
+from src.config import PROJECT_ROOT, get_soc_data_dir
 from src.models.evaluate import compute_metrics, find_optimal_threshold
 import backend.database as db
 
-CANDIDATE_DATASETS_DIR = PROJECT_ROOT / "data" / "candidate_datasets"
-CANDIDATE_MODELS_DIR = PROJECT_ROOT / "models" / "candidates"
-MODEL_BACKUPS_DIR = PROJECT_ROOT / "models" / "backups"
+
+def get_candidate_datasets_dir() -> Path:
+    """Returns directory for uploaded candidate training datasets, respecting SOC_DATA_DIR."""
+    d = get_soc_data_dir() / "candidate_datasets"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def get_candidate_models_dir() -> Path:
+    """Returns directory for candidate trained models, respecting SOC_DATA_DIR in production."""
+    soc_data = os.environ.get("SOC_DATA_DIR")
+    if soc_data and soc_data.strip():
+        d = get_soc_data_dir() / "models" / "candidates"
+    else:
+        d = PROJECT_ROOT / "models" / "candidates"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def get_model_backups_dir() -> Path:
+    """Returns directory for model rollback archives, respecting SOC_DATA_DIR in production."""
+    soc_data = os.environ.get("SOC_DATA_DIR")
+    if soc_data and soc_data.strip():
+        d = get_soc_data_dir() / "models" / "backups"
+    else:
+        d = PROJECT_ROOT / "models" / "backups"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+CANDIDATE_DATASETS_DIR = get_candidate_datasets_dir()
+CANDIDATE_MODELS_DIR = get_candidate_models_dir()
+MODEL_BACKUPS_DIR = get_model_backups_dir()
 
 PROFILE_COLS = [f"bp_{i:02d}" for i in range(1, 9)]
 FLOW_COLS = ["flow_duration", "flow_bytes_s", "flow_packets_s", "syn_flag_count"]
@@ -48,9 +78,9 @@ FORBIDDEN_COLUMNS = {
 
 def ensure_directories():
     """Ensures dedicated candidate and backup storage directories exist."""
-    CANDIDATE_DATASETS_DIR.mkdir(parents=True, exist_ok=True)
-    CANDIDATE_MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    MODEL_BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
+    get_candidate_datasets_dir()
+    get_candidate_models_dir()
+    get_model_backups_dir()
 
 
 # -----------------------------------------------------------------------------
@@ -360,7 +390,7 @@ def save_uploaded_dataset(file_content: bytes, filename: str, user_info: Dict[st
 
     dataset_id = f"DS-CAND-{time.strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
     stored_filename = f"{dataset_id}_{Path(filename).name}"
-    target_path = CANDIDATE_DATASETS_DIR / stored_filename
+    target_path = get_candidate_datasets_dir() / stored_filename
     target_path.write_bytes(file_content)
 
     entry = {
@@ -517,7 +547,7 @@ def train_candidate_model(dataset_id: str, user_info: Dict[str, Any]) -> Dict[st
 
     # Train candidate models in isolated directory
     candidate_id = f"MDL-CAND-{time.strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
-    cand_dir = CANDIDATE_MODELS_DIR / candidate_id
+    cand_dir = get_candidate_models_dir() / candidate_id
     cand_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Train Portable Regularized FCNN (MLPClassifier)
@@ -718,7 +748,7 @@ def activate_candidate_model(
     # 1. Snapshot previous state for verified rollback capability
     current_active = db.get_active_candidate_model()
     backup_id = f"BKP-{time.strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
-    backup_path = MODEL_BACKUPS_DIR / backup_id
+    backup_path = get_model_backups_dir() / backup_id
     backup_path.mkdir(parents=True, exist_ok=True)
 
     previous_type = "CANDIDATE_MODEL" if current_active else "EXPERIMENT_B_BASELINE"

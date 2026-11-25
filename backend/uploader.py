@@ -13,15 +13,23 @@ import uuid
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 
-from src.config import PROJECT_ROOT
+from src.config import PROJECT_ROOT, get_soc_data_dir
 import backend.database as db
 
-UPLOADS_ROOT = PROJECT_ROOT / "data" / "uploads"
+
+def get_uploads_root() -> Path:
+    """Returns the root directory for uploaded files and chunks, respecting SOC_DATA_DIR."""
+    d = get_soc_data_dir() / "uploads"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+UPLOADS_ROOT = get_uploads_root()
 
 
 def get_upload_dir(upload_id: str) -> Path:
     """Returns the dedicated on-disk staging directory for an upload session."""
-    d = UPLOADS_ROOT / upload_id
+    d = get_uploads_root() / upload_id
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -305,7 +313,7 @@ def cleanup_upload(upload_id: str) -> bool:
         raise ValueError(
             f"Upload session '{upload_id}' is protected for forensic diagnostic audit and cannot be purged."
         )
-    upload_dir = UPLOADS_ROOT / upload_id
+    upload_dir = get_upload_dir(upload_id)
     if upload_dir.exists():
         shutil.rmtree(upload_dir, ignore_errors=True)
     return db.cancel_and_cleanup_upload(upload_id)

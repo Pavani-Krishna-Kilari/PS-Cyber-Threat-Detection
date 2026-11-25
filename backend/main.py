@@ -79,6 +79,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.on_event("startup")
+def on_startup():
+    """Initialize database schema, ensure runtime directories exist on startup."""
+    db.init_db()
+    uploader.get_uploads_root()
+    tm.ensure_directories()
+
+
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
 
 
@@ -367,7 +376,7 @@ def resume_process_endpoint(payload: ProcessResumeRequest) -> Dict[str, Any]:
         }
 
     # Verify source file presence on disk before attempting resume
-    upload_dir = PROJECT_ROOT / "data" / "uploads" / payload.upload_id
+    upload_dir = uploader.get_upload_dir(payload.upload_id)
     if not (upload_dir / "source.csv").exists() and not (upload_dir / "sorted_source.csv").exists():
         raise HTTPException(
             status_code=410,
@@ -895,5 +904,8 @@ if FRONTEND_DIR.exists():
 
 
 if __name__ == "__main__":
+    import os
     import uvicorn
-    uvicorn.run("backend.main:app", host="127.0.0.1", port=8000, reload=True)
+    port = int(os.environ.get("PORT", 8000))
+    host = os.environ.get("HOST", "0.0.0.0" if (os.environ.get("PORT") or os.environ.get("RENDER")) else "127.0.0.1")
+    uvicorn.run("backend.main:app", host=host, port=port, reload=True)

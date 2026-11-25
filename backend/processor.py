@@ -17,6 +17,7 @@ import pandas as pd
 
 from src.config import PROJECT_ROOT
 import backend.database as db
+from backend.uploader import get_upload_dir
 from backend.parser import normalize_and_deduplicate_dataframe, clean_column_name, PROFILE_COLS
 from backend.sorter import external_sort_csv
 from backend.campaign import coalesce_campaigns
@@ -57,9 +58,24 @@ class StreamBatchProcessor:
         if not session:
             raise ValueError(f"Upload session '{upload_id}' not found.")
 
-        upload_dir = Path(session.get("source_csv", PROJECT_ROOT / "data" / "uploads" / upload_id))
+        staging_dir = get_upload_dir(upload_id)
+        source_val = session.get("source_csv")
+        upload_dir = staging_dir
+        if source_val:
+            source_p = Path(source_val)
+            if source_p.is_file():
+                upload_dir = source_p.parent
+            elif source_p.is_dir():
+                upload_dir = source_p
+
         source_csv = upload_dir / "source.csv"
         sorted_csv = upload_dir / "sorted_source.csv"
+
+        if not source_csv.exists() and not sorted_csv.exists() and staging_dir != upload_dir:
+            if (staging_dir / "source.csv").exists() or (staging_dir / "sorted_source.csv").exists():
+                upload_dir = staging_dir
+                source_csv = upload_dir / "source.csv"
+                sorted_csv = upload_dir / "sorted_source.csv"
 
         if not source_csv.exists() and not sorted_csv.exists():
             raise FileNotFoundError(f"Source file not found for upload {upload_id} in {upload_dir}. Staging directory is missing or was purged.")

@@ -6,27 +6,424 @@ historical queries, filtering, and context retrieval for the AI Assistant.
 """
 
 import json
+import logging
+import os
+import shutil
 import sqlite3
 import time
 import uuid
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
-from src.config import PROJECT_ROOT
+from src.config import PROJECT_ROOT, get_soc_data_dir
 
-DB_PATH = PROJECT_ROOT / "data" / "detection_history.db"
+logger = logging.getLogger(__name__)
+
+
+def is_strict_db_required() -> bool:
+    """Returns True if SOC_REQUIRE_EXISTING_DB is enabled in the environment."""
+    return os.environ.get("SOC_REQUIRE_EXISTING_DB", "").strip().lower() in ("1", "true", "yes")
+
+
+def install_database_via_hardlink(staging_path: Path, target_path: Path) -> bool:
+    """
+    Safely installs a staged SQLite database using hard-linking (os.link) as the exclusive method.
+    - Performs a harmless hard-link pre-flight test in target_path.parent to verify:
+      1. Hard-link creation succeeds.
+      2. Attempting to create another hard link at the same destination raises FileExistsError.
+      3. The original test file remains intact.
+    - Cleans up only the harmless test files created during the pre-flight test.
+    - If hard links are unsupported or either pre-flight test fails, raises RuntimeError
+      without fallback (never uses os.replace, shutil.move, or os.rename).
+    - If target_path already exists, aborts with FileExistsError without modifying target_path.
+    - If installation fails, preserves the staging database file intact.
+    - After successful os.link(staging, target), verifies that both paths refer to the same
+      underlying file before unlinking staging_path.
+    """
+    staging_path = Path(staging_path).resolve()
+    target_path = Path(target_path).resolve()
+
+    if not staging_path.exists():
+        raise FileNotFoundError(f"Staging database file not found at: {staging_path}")
+
+    if target_path.exists():
+        raise FileExistsError(f"Target database already exists at: {target_path}. Overwrite is strictly prohibited.")
+
+    target_dir = target_path.parent
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Pre-flight harmless test in actual target directory
+    probe_id = uuid.uuid4().hex[:8]
+    probe_src = target_dir / f".preflight_probe_src_{probe_id}.tmp"
+    probe_dst = target_dir / f".preflight_probe_dst_{probe_id}.tmp"
+
+    try:
+        probe_content = b"hardlink_preflight_probe_data"
+        probe_src.write_bytes(probe_content)
+
+        # Test 1: Hard link creation succeeds
+        try:
+            os.link(str(probe_src), str(probe_dst))
+        except (OSError, NotImplementedError) as e:
+            raise RuntimeError(
+                f"Target filesystem does not support hard links: {e}. Aborting installation without overwrite fallback."
+            ) from e
+
+        # Test 2: Creating another hard link at the same destination raises FileExistsError
+        try:
+            os.link(str(probe_src), str(probe_dst))
+            raise RuntimeError(
+                "Pre-flight security check failed: os.link did not raise FileExistsError on existing destination!"
+            )
+        except FileExistsError:
+            pass  # Expected safe behavior
+
+        # Test 3: The original test file remains intact and refers to same underlying file
+        if not probe_src.exists() or probe_src.read_bytes() != probe_content or not os.path.samefile(probe_src, probe_dst):
+            raise RuntimeError(
+                "Pre-flight verification failed: probe files altered or do not point to same file!"
+            )
+
+    finally:
+        # Clean up only harmless probe test files
+        for p in (probe_src, probe_dst):
+            if p.exists():
+                try:
+                    p.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+    # 2. Check target database existence again right before linking
+    if target_path.exists():
+        raise FileExistsError(
+            f"Target database appeared concurrently at: {target_path}. Aborting installation."
+        )
+
+    # 3. Perform the actual hard-link installation (NO os.replace, shutil.move, or os.rename fallback)
+    try:
+        os.link(str(staging_path), str(target_path))
+    except Exception as e:
+        # Preserve staging intact and raise
+        logger.error("Hard-link installation failed for %s -> %s: %s", staging_path, target_path, e)
+        raise RuntimeError(
+            f"Hard-link installation failed: {e}. Staging database preserved at {staging_path}."
+        ) from e
+
+    # 4. Verify both paths refer to the exact same file before removing staging name
+    if not target_path.exists() or not os.path.samefile(staging_path, target_path):
+        raise RuntimeError(
+            f"Post-installation verification failed: {staging_path} and {target_path} do not refer to the same file! Staging preserved."
+        )
+
+    # 5. Remove the staging directory entry
+    try:
+        staging_path.unlink()
+    except Exception as e:
+        logger.warning(
+            "Installed %s successfully, but could not remove staging link %s: %s",
+            target_path, staging_path, e
+        )
+
+    logger.info("Database safely installed via hard link at: %s", target_path)
+    return True
+
+
+def seed_database_via_backup(source_path: Path, target_path: Path) -> bool:
+    """
+    Safely seeds a persistent SQLite database using SQLite's built-in Connection.backup() API.
+    - Never overwrites an existing target database.
+    - Opens source database read-only via SQLite URI mode=ro to prevent accidental writes.
+    - Safely processes SQLite WAL journals by copying a live consistent snapshot.
+    - Writes to an atomic temporary staging file and renames only upon successful backup.
+    - Cleans up incomplete temporary files if any error occurs so failed migrations
+      never leave a partially copied database that the application treats as valid.
+    """
+    if target_path.exists():
+        logger.debug("Target database already exists at %s; skipping seeding.", target_path)
+        return False
+
+    if not source_path.exists() or source_path.stat().st_size == 0:
+        logger.debug("Source seed database not found or empty at %s; skipping seeding.", source_path)
+        return False
+
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_target = target_path.parent / f"{target_path.name}.tmp.{uuid.uuid4().hex[:8]}"
+
+    src_conn = None
+    dst_conn = None
+    try:
+        source_uri = f"file:{source_path.resolve().as_posix()}?mode=ro"
+        src_conn = sqlite3.connect(source_uri, uri=True, check_same_thread=False)
+        dst_conn = sqlite3.connect(str(temp_target), check_same_thread=False)
+
+        src_conn.backup(dst_conn)
+        dst_conn.commit()
+
+        dst_conn.close()
+        dst_conn = None
+        src_conn.close()
+        src_conn = None
+
+        if target_path.exists():
+            if temp_target.exists():
+                temp_target.unlink(missing_ok=True)
+            return False
+
+        os.replace(str(temp_target), str(target_path))
+        logger.info("Seeded persistent SQLite database via backup API from %s to %s", source_path, target_path)
+        return True
+    except Exception as e:
+        logger.warning("Database seeding via backup failed from %s to %s: %s", source_path, target_path, e)
+        if temp_target.exists():
+            try:
+                temp_target.unlink(missing_ok=True)
+            except Exception:
+                pass
+        return False
+    finally:
+        if dst_conn is not None:
+            try:
+                dst_conn.close()
+            except Exception:
+                pass
+        if src_conn is not None:
+            try:
+                src_conn.close()
+            except Exception:
+                pass
+        if temp_target.exists():
+            try:
+                temp_target.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
+def get_resolved_db_path() -> Path:
+    """
+    Returns the single canonical resolved database path.
+    Respects:
+    1. Test monkeypatching or runtime overrides on backend.database.DB_PATH.
+    2. SOC_DATA_DIR environment variable if configured.
+    3. Default local development path: PROJECT_ROOT / "data" / "detection_history.db".
+    """
+    active_path = DB_PATH
+    soc_data = os.environ.get("SOC_DATA_DIR")
+    if soc_data and soc_data.strip():
+        default_local = (PROJECT_ROOT / "data" / "detection_history.db").resolve()
+        if active_path.resolve() == default_local:
+            return (Path(soc_data.strip()).resolve() / "detection_history.db").resolve()
+    return active_path.resolve()
+
+
+def get_db_path() -> Path:
+    """
+    Returns the active database file path.
+    Respects SOC_DATA_DIR if configured (e.g. /var/data on Render).
+    If the database does not exist in SOC_DATA_DIR, seeds from existing local DB if present.
+    """
+    data_dir = get_soc_data_dir()
+    target_db = (data_dir / "detection_history.db").resolve()
+    seed_db = (PROJECT_ROOT / "data" / "detection_history.db").resolve()
+
+    # If running with an external SOC_DATA_DIR and target_db doesn't exist yet, seed from repo db
+    if target_db != seed_db and not target_db.exists():
+        if os.environ.get("SOC_DISABLE_DB_SEEDING", "").lower() not in ("1", "true", "yes"):
+            seed_database_via_backup(seed_db, target_db)
+
+    return target_db
+
+
+DB_PATH = get_db_path()
+
+
+REQUIRED_DATABASE_TABLES = [
+    "access_clearance_tickets",
+    "analysis_sessions",
+    "batch_checkpoints",
+    "batch_intermediate_detections",
+    "batch_pending_alert_windows",
+    "campaigns",
+    "candidate_datasets",
+    "candidate_models",
+    "detections",
+    "drift_reports",
+    "model_activation_audit",
+    "model_backups",
+    "password_recovery_requests",
+    "upload_chunks",
+    "upload_sessions",
+    "user_sessions"
+]
+
+CORE_REQUIRED_TABLES = [
+    "analysis_sessions",
+    "detections"
+]
+
+REQUIRED_TABLE_COLUMNS = {
+    "access_clearance_tickets": ["ticket_id", "name", "email", "clearance_level", "status", "timestamp"],
+    "analysis_sessions": ["session_id", "timestamp", "source_name", "input_type", "total_records", "threats_detected"],
+    "batch_checkpoints": ["upload_id", "batch_index", "row_start", "row_end", "n_flows", "status"],
+    "batch_intermediate_detections": ["id", "upload_id", "batch_index", "detection_json"],
+    "batch_pending_alert_windows": ["event_set_id", "upload_id", "batch_index", "window_json"],
+    "campaigns": ["campaign_id", "session_id", "verdict", "window_count"],
+    "candidate_datasets": ["dataset_id", "filename", "file_path", "row_count", "dataset_type"],
+    "candidate_models": ["candidate_id", "dataset_id", "model_name", "status", "artifact_path"],
+    "detections": ["id", "session_id", "timestamp", "source", "verdict", "threat_confidence", "severity"],
+    "drift_reports": ["id", "session_id", "timestamp", "overall_drift_score", "drift_status"],
+    "model_activation_audit": ["activation_id", "candidate_id", "action", "approved_by", "timestamp"],
+    "model_backups": ["backup_id", "timestamp", "previous_model_type", "backup_path"],
+    "password_recovery_requests": ["token", "email", "created_at", "used"],
+    "upload_chunks": ["upload_id", "chunk_index", "chunk_size", "received_at"],
+    "upload_sessions": ["upload_id", "session_id", "filename", "file_size", "file_hash", "upload_status"],
+    "user_sessions": ["token", "email", "name", "role", "expires_at"]
+}
+
+
+def validate_production_database(db_path: Optional[Path] = None) -> None:
+    """
+    Validates the production database when SOC_REQUIRE_EXISTING_DB=true.
+    Validates:
+    1. File exists and is non-empty.
+    2. Basic SQLite database accessibility (schema_version).
+    3. All 16 required tables exist.
+    4. Required columns exist on each table based on actual application usage.
+    Does NOT enforce historical row counts or run slow full PRAGMA integrity_check on startup.
+    Raises RuntimeError on failure.
+    """
+    if db_path is None:
+        db_path = get_resolved_db_path()
+    else:
+        db_path = Path(db_path).resolve()
+
+    if not db_path.exists():
+        raise RuntimeError(
+            f"[FATAL DEPLOYMENT ERROR] SOC_REQUIRE_EXISTING_DB is enabled, but database file "
+            f"'{db_path}' does not exist! Startup aborted before empty database creation."
+        )
+    if db_path.stat().st_size == 0:
+        raise RuntimeError(
+            f"[FATAL DEPLOYMENT ERROR] SOC_REQUIRE_EXISTING_DB is enabled, but database file "
+            f"'{db_path}' is empty (0 bytes)! Startup aborted."
+        )
+
+    source_uri = f"file:{db_path.as_posix()}?mode=ro"
+    try:
+        conn = sqlite3.connect(source_uri, uri=True, check_same_thread=False)
+    except Exception as e:
+        raise RuntimeError(
+            f"[FATAL DEPLOYMENT ERROR] Could not open database at '{db_path}': {e}"
+        ) from e
+
+    try:
+        # Fast accessibility check
+        try:
+            conn.execute("PRAGMA schema_version;").fetchone()
+        except Exception as e:
+            raise RuntimeError(
+                f"[FATAL DEPLOYMENT ERROR] Database at '{db_path}' is invalid or corrupted: {e}"
+            ) from e
+
+        # Table presence check
+        tables = set(r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table';").fetchall())
+        missing_tables = set(REQUIRED_DATABASE_TABLES) - tables
+        if missing_tables:
+            raise RuntimeError(
+                f"[FATAL DEPLOYMENT ERROR] Database at '{db_path}' is missing required tables: {sorted(missing_tables)}"
+            )
+
+        # Column presence check
+        for table, cols in REQUIRED_TABLE_COLUMNS.items():
+            actual_cols = set(c[1] for c in conn.execute(f"PRAGMA table_info({table});").fetchall())
+            missing_cols = set(cols) - actual_cols
+            if missing_cols:
+                raise RuntimeError(
+                    f"[FATAL DEPLOYMENT ERROR] Table '{table}' in database '{db_path}' is missing required columns: {sorted(missing_cols)}"
+                )
+
+        logger.info("Production database schema verified at %s.", db_path)
+    finally:
+        conn.close()
 
 
 def get_connection() -> sqlite3.Connection:
     """Returns a thread-safe connection to the SQLite database."""
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
+    active_path = get_resolved_db_path()
+
+    # When SOC_REQUIRE_EXISTING_DB=true, abort before SQLite creates a missing or empty database
+    if is_strict_db_required():
+        if not active_path.exists():
+            raise RuntimeError(
+                f"[FATAL DEPLOYMENT ERROR] SOC_REQUIRE_EXISTING_DB is enabled, but database file "
+                f"'{active_path}' does not exist! Startup aborted before SQLite creates an empty file."
+            )
+        if active_path.stat().st_size == 0:
+            raise RuntimeError(
+                f"[FATAL DEPLOYMENT ERROR] SOC_REQUIRE_EXISTING_DB is enabled, but database file "
+                f"'{active_path}' is empty (0 bytes)! Startup aborted."
+            )
+
+        # Use URI mode=rw to strictly forbid creating a new file even under race conditions
+        db_uri = f"file:{active_path.resolve().as_posix()}?mode=rw"
+        try:
+            conn = sqlite3.connect(db_uri, uri=True, check_same_thread=False)
+        except sqlite3.OperationalError as e:
+            raise RuntimeError(
+                f"[FATAL DEPLOYMENT ERROR] Strict mode failed to open database at '{active_path}' (mode=rw): {e}"
+            ) from e
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    active_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(active_path), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def init_db():
     """Initializes database tables if they do not already exist, with safe schema migrations."""
+    active_path = get_resolved_db_path()
+
+    # In strict production mode, verify existence, non-zero size, and basic accessibility before migrations
+    if is_strict_db_required():
+        if not active_path.exists():
+            raise RuntimeError(
+                f"[FATAL DEPLOYMENT ERROR] SOC_REQUIRE_EXISTING_DB is enabled, but database file "
+                f"'{active_path}' does not exist! Startup aborted before SQLite creates an empty file."
+            )
+        if active_path.stat().st_size == 0:
+            raise RuntimeError(
+                f"[FATAL DEPLOYMENT ERROR] SOC_REQUIRE_EXISTING_DB is enabled, but database file "
+                f"'{active_path}' is empty (0 bytes)! Startup aborted."
+            )
+
+        # Fast read-only accessibility and core schema check before connecting for migrations
+        probe_uri = f"file:{active_path.resolve().as_posix()}?mode=ro"
+        try:
+            probe_conn = sqlite3.connect(probe_uri, uri=True, check_same_thread=False)
+        except Exception as e:
+            raise RuntimeError(
+                f"[FATAL DEPLOYMENT ERROR] Could not open database at '{active_path}': {e}"
+            ) from e
+
+        try:
+            try:
+                probe_conn.execute("PRAGMA schema_version;").fetchone()
+            except Exception as e:
+                raise RuntimeError(
+                    f"[FATAL DEPLOYMENT ERROR] Database at '{active_path}' is invalid or corrupted: {e}"
+                ) from e
+
+            # Verify core detection tables already exist in the production database
+            tables = set(r[0] for r in probe_conn.execute("SELECT name FROM sqlite_master WHERE type='table';").fetchall())
+            missing_core = set(CORE_REQUIRED_TABLES) - tables
+            if missing_core:
+                raise RuntimeError(
+                    f"[FATAL DEPLOYMENT ERROR] Database at '{active_path}' is missing required tables: {sorted(missing_core)}"
+                )
+        finally:
+            probe_conn.close()
+
     conn = get_connection()
     try:
         with conn:
@@ -214,16 +611,21 @@ def init_db():
             );
             """)
 
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_upload_chunks_uid ON upload_chunks(upload_id);")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_batch_checkpoints_uid ON batch_checkpoints(upload_id);")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_batch_intermediate_uid ON batch_intermediate_detections(upload_id);")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_batch_pending_alert_uid ON batch_pending_alert_windows(upload_id);")
-
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_detections_timestamp ON detections(timestamp);")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_detections_verdict ON detections(verdict);")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_detections_severity ON detections(severity);")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_detections_session ON detections(session_id);")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_campaigns_session ON campaigns(session_id);")
+            for idx_sql in [
+                "CREATE INDEX IF NOT EXISTS idx_upload_chunks_uid ON upload_chunks(upload_id);",
+                "CREATE INDEX IF NOT EXISTS idx_batch_checkpoints_uid ON batch_checkpoints(upload_id);",
+                "CREATE INDEX IF NOT EXISTS idx_batch_intermediate_uid ON batch_intermediate_detections(upload_id);",
+                "CREATE INDEX IF NOT EXISTS idx_batch_pending_alert_uid ON batch_pending_alert_windows(upload_id);",
+                "CREATE INDEX IF NOT EXISTS idx_detections_timestamp ON detections(timestamp);",
+                "CREATE INDEX IF NOT EXISTS idx_detections_verdict ON detections(verdict);",
+                "CREATE INDEX IF NOT EXISTS idx_detections_severity ON detections(severity);",
+                "CREATE INDEX IF NOT EXISTS idx_detections_session ON detections(session_id);",
+                "CREATE INDEX IF NOT EXISTS idx_campaigns_session ON campaigns(session_id);"
+            ]:
+                try:
+                    conn.execute(idx_sql)
+                except Exception:
+                    pass
 
             # Safe schema migrations for existing databases
             existing_sess_cols = [c[1] for c in conn.execute("PRAGMA table_info(analysis_sessions);").fetchall()]
@@ -254,8 +656,11 @@ def init_db():
             if "used" not in existing_rec_cols:
                 conn.execute("ALTER TABLE password_recovery_requests ADD COLUMN used INTEGER NOT NULL DEFAULT 0;")
 
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_detections_status ON detections(prediction_status);")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_detections_campaign ON detections(campaign_id);")
+            try:
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_detections_status ON detections(prediction_status);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_detections_campaign ON detections(campaign_id);")
+            except Exception:
+                pass
 
             # Dual-Layer Data Drift Reports Table
             conn.execute("""
@@ -279,9 +684,12 @@ def init_db():
                 FOREIGN KEY(session_id) REFERENCES analysis_sessions(session_id)
             );
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_drift_reports_session ON drift_reports(session_id);")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_drift_reports_timestamp ON drift_reports(timestamp);")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_drift_reports_status ON drift_reports(drift_status);")
+            try:
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_drift_reports_session ON drift_reports(session_id);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_drift_reports_timestamp ON drift_reports(timestamp);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_drift_reports_status ON drift_reports(drift_status);")
+            except Exception:
+                pass
 
             # Candidate Datasets Table (Head of SOC Training Studio)
             conn.execute("""
@@ -350,10 +758,17 @@ def init_db():
                     conn.execute(f"ALTER TABLE model_activation_audit ADD COLUMN {col_name} {col_type};")
                 except Exception:
                     pass
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_candidate_models_status ON candidate_models(status);")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_candidate_datasets_time ON candidate_datasets(uploaded_at);")
+            try:
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_candidate_models_status ON candidate_models(status);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_candidate_datasets_time ON candidate_datasets(uploaded_at);")
+            except Exception:
+                pass
     finally:
         conn.close()
+
+    # In strict production mode, validate the full schema after migrations have completed
+    if is_strict_db_required():
+        validate_production_database(active_path)
 
 
 def insert_session(session_data: Dict[str, Any]) -> str:

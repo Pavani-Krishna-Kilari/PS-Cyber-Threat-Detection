@@ -674,8 +674,8 @@ def request_password_recovery(email: str) -> Dict[str, Any]:
 
     is_known = clean_email in SOC_OPERATORS
 
-    # Log dispatch to enterprise audit / communication interface
-    print(f"[AUTH_AUDIT] Password reset token dispatched for {clean_email}: {recovery_token} (expires: {exp_str})")
+    # Log dispatch to enterprise audit / communication interface (never log token or partial token)
+    print(f"[AUTH_AUDIT] Password reset token dispatched for {clean_email} (expires: {exp_str})")
 
     response_data = {
         "status": "SUCCESS",
