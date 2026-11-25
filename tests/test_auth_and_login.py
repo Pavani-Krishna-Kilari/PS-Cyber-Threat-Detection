@@ -170,7 +170,7 @@ class TestAuthAndLogin(unittest.TestCase):
         self.assertIsNotNone(data["user"])
         self.assertEqual(data["user"]["email"], "admin@soc.ai")
         self.assertIn("Alex Vance", data["user"]["name"])
-        self.assertIn("Lead SOC", data["user"]["role"])
+        self.assertTrue("Head of SOC" in data["user"]["role"] or "Lead SOC" in data["user"]["role"])
         self.assertIn("Level 5", data["user"]["clearance"])
 
     def test_login_sets_httponly_cookie(self):

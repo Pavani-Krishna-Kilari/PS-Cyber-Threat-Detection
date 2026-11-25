@@ -25,6 +25,7 @@ from backend.aggregator import (
     InvalidBenchmarkAnnotationError
 )
 from backend.campaign import coalesce_campaigns
+import backend.database as db
 from backend.database import (
     init_db,
     insert_session,
@@ -61,7 +62,26 @@ class SIEMService:
         self._cached_profile_stats: Optional[Dict[str, Any]] = None
         self._cached_benchmarks: Optional[Dict[str, Any]] = None
         self._cached_anomaly_stats: Optional[Dict[str, Any]] = None
+        self.active_workers: Dict[str, Any] = {}
         self.set_experiment(experiment_id)
+
+    def register_worker(self, upload_id: str, thread: Any):
+        """Registers an active worker thread for an upload session."""
+        self.active_workers[upload_id] = thread
+
+    def unregister_worker(self, upload_id: str):
+        """Unregisters a completed or terminated worker thread."""
+        self.active_workers.pop(upload_id, None)
+
+    def is_stream_worker_running(self, upload_id: str) -> bool:
+        """Checks if a background worker thread is currently alive for an upload."""
+        th = self.active_workers.get(upload_id)
+        if th is not None:
+            if hasattr(th, "is_alive") and th.is_alive():
+                return True
+            elif th is True:
+                return True
+        return False
 
     def set_experiment(self, experiment_id: str):
         """Switches active experiment, loading verified models, profiles, and metrics."""
@@ -107,6 +127,8 @@ class SIEMService:
 
         self.anomaly_detector = self.engine.anomaly_detector
         self.aggregator = RawFlowAggregator(experiment_id=self.experiment_id, data_dir=self.data_dir)
+        from backend.processor import StreamBatchProcessor
+        self.processor = StreamBatchProcessor(service_instance=self)
         self._cached_dataset_stats = None
         self._cached_profile_stats = None
         self._cached_benchmarks = None
@@ -353,7 +375,12 @@ class SIEMService:
             })
         }
 
-    def process_file_upload(self, file_bytes: bytes, filename: str) -> Dict[str, Any]:
+    def process_file_upload(
+        self,
+        file_bytes: bytes,
+        filename: str,
+        session_id: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         Parses an uploaded CSV/TXT/PDF file and runs genuine threat inference
         using the trained neural ensemble and isolation forest models.
@@ -369,7 +396,7 @@ class SIEMService:
         if df.empty:
             raise ValueError("No tabular network flow records found in file.")
 
-        session_id = f"SESS-{time.strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
+        session_id = session_id or f"SESS-{time.strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
         session_prefix = session_id.split("-")[-1]
 
         results = []
@@ -822,6 +849,24 @@ class SIEMService:
             "sample_results": results[:50]
         }
 
+        # Compute Dual-Layer Data Drift Analysis
+        try:
+            from src.drift import DriftEngine
+            drift_engine = DriftEngine()
+
+            df_flows_drift = df if detected_type == "flow" else None
+            profiles_drift = profiles if detected_type == "flow" else np.asarray([item["vec"] for item in valid_items], dtype=np.float32)
+
+            drift_report = drift_engine.evaluate_drift(
+                df_flows=df_flows_drift,
+                profiles_matrix=profiles_drift,
+                session_id=session_id
+            )
+            summary["drift_analysis"] = drift_report
+        except Exception as ex_dr:
+            import logging
+            logging.getLogger(__name__).warning(f"Data drift evaluation error in process_file_upload: {ex_dr}")
+
         # Persist session, detections, and campaigns in SQLite
         insert_session(summary)
         insert_detections(results, session_id=session_id)
@@ -832,6 +877,47 @@ class SIEMService:
         self._stream_explicitly_cleared = False
         self.current_analysis_summary = summary
         return summary
+
+    def start_stream_processing(
+        self,
+        upload_id: str,
+        batch_size: int = 20000,
+        max_batches: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Runs or resumes streaming batch processing for an uploaded file."""
+        return self.processor.process_upload_session(
+            upload_id=upload_id,
+            batch_size=batch_size,
+            max_batches_to_run=max_batches
+        )
+
+    def get_stream_processing_status(self, upload_id: str) -> Dict[str, Any]:
+        """Returns processing progress, completed checkpoints, and running threat counters."""
+        session = db.get_upload_session(upload_id)
+        if not session:
+            raise ValueError(f"Upload session '{upload_id}' not found.")
+        latest_chk = db.get_latest_checkpoint(upload_id)
+        metrics = json.loads(latest_chk.get("metrics_snapshot", "{}")) if latest_chk else {}
+        total_batches = session["total_batches"]
+        completed_batches = session["completed_batches"]
+        pct = round((completed_batches / max(total_batches, 1)) * 100, 1) if total_batches > 0 else 0.0
+
+        return {
+            "upload_id": upload_id,
+            "session_id": session["session_id"],
+            "filename": session["filename"],
+            "upload_status": session["upload_status"],
+            "sort_status": session["sort_status"],
+            "processing_status": session["processing_status"],
+            "total_rows": session["total_rows"],
+            "processed_rows": session["processed_rows"],
+            "total_batches": total_batches,
+            "completed_batches": completed_batches,
+            "progress_percent": pct,
+            "metrics": metrics,
+            "error_message": session["error_message"]
+        }
+
 
     def get_campaigns(self, limit: int = 50, session_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Retrieves security campaigns, optionally filtered by session_id."""
@@ -1175,9 +1261,9 @@ class SIEMService:
         """Retrieves metadata summary for a single analysis session."""
         return get_session_by_id(session_id)
 
-    def get_session_report(self, session_id: str) -> Optional[Dict[str, Any]]:
+    def get_session_report(self, session_id: str, include_drift: bool = True) -> Optional[Dict[str, Any]]:
         """Retrieves the complete persistent classification report for a session."""
-        return get_session_report(session_id)
+        return get_session_report(session_id, include_drift=include_drift)
 
     def delete_session(self, session_id: str) -> bool:
         """Transactionally deletes a session and associated detection/campaign records."""

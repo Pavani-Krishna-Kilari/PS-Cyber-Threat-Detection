@@ -104,13 +104,121 @@ PROFILE_COLS = [f"bp_{i:02d}" for i in range(1, 9)]
 REQUIRED_FLOW_FEATURES = ["flow_packets_s", "flow_bytes_s", "syn_flag_count", "flow_duration"]
 
 # Forbidden label columns that must NEVER be passed as input features
-LABEL_COLUMNS = ["label", "label_original", "target_binary", "target_multiclass", "class", "target", "attack_type"]
+LABEL_COLUMNS = [
+    "label", "label_original", "target_binary", "target_multiclass", "class",
+    "target", "attack_type", "actual_label", "threat_type"
+]
 
 
 def clean_column_name(col: str) -> str:
     """Normalizes column headers to lowercase snake_case."""
     s = str(col).strip().lower().replace(" ", "_").replace("/", "_").replace("-", "_")
     return s.strip("_")
+
+
+def are_series_equivalent(s1: pd.Series, s2: pd.Series) -> bool:
+    """
+    Checks whether two series contain equivalent values, handling:
+    - Identical values (int, float, string)
+    - Numeric equivalence (int vs float, e.g. 10 vs 10.0)
+    - NaN / null matching
+    - String whitespace/case equivalence
+    """
+    if s1.equals(s2):
+        return True
+
+    # 1. Try numeric comparison
+    try:
+        n1 = pd.to_numeric(s1, errors="coerce")
+        n2 = pd.to_numeric(s2, errors="coerce")
+        mask1 = n1.isna()
+        mask2 = n2.isna()
+        if (mask1 == mask2).all():
+            valid_idx = ~mask1
+            if valid_idx.sum() == len(s1):
+                if np.allclose(n1, n2, equal_nan=True, rtol=1e-5, atol=1e-8):
+                    return True
+            elif valid_idx.sum() > 0:
+                if np.allclose(n1[valid_idx], n2[valid_idx], rtol=1e-5, atol=1e-8):
+                    str1 = s1[mask1].astype(str).str.strip().str.lower()
+                    str2 = s2[mask1].astype(str).str.strip().str.lower()
+                    if (str1 == str2).all():
+                        return True
+            else:
+                str1 = s1.fillna("").astype(str).str.strip().str.lower()
+                str2 = s2.fillna("").astype(str).str.strip().str.lower()
+                if (str1 == str2).all():
+                    return True
+    except Exception:
+        pass
+
+    # 2. String comparison
+    try:
+        str1 = s1.fillna("").astype(str).str.strip().str.lower()
+        str2 = s2.fillna("").astype(str).str.strip().str.lower()
+        if (str1 == str2).all():
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
+def resolve_canonical_name(col_clean: str) -> str:
+    """
+    Resolves cleaned column header to its canonical field name.
+    Handles direct canonical flow aliases, mangled duplicate suffixes (.1, .2),
+    and event profile basepoint names.
+    """
+    if col_clean in CANONICAL_FLOW_FIELDS:
+        return CANONICAL_FLOW_FIELDS[col_clean]
+    base = re.sub(r"\.\d+$", "", col_clean)
+    if base in CANONICAL_FLOW_FIELDS:
+        return CANONICAL_FLOW_FIELDS[base]
+    return base
+
+
+def normalize_and_deduplicate_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Normalizes column headers, strips ground-truth label columns,
+    maps aliases to canonical names, and safely deduplicates identical columns.
+    Raises ValueError if duplicate columns mapping to the same canonical name conflict.
+    """
+    raw_cols = list(df.columns)
+    cleaned_cols = [clean_column_name(c) for c in raw_cols]
+
+    # Drop explicit ground-truth label columns (including .1 suffixes)
+    keep_indices = []
+    for i, c in enumerate(cleaned_cols):
+        base = re.sub(r"\.\d+$", "", c)
+        if c not in LABEL_COLUMNS and base not in LABEL_COLUMNS:
+            keep_indices.append(i)
+
+    # Group remaining columns by resolved canonical name
+    groups: Dict[str, List[Tuple[str, pd.Series]]] = {}
+    for i in keep_indices:
+        orig_name = raw_cols[i]
+        c_clean = cleaned_cols[i]
+        canon = resolve_canonical_name(c_clean)
+        col_series = df.iloc[:, i]
+        groups.setdefault(canon, []).append((orig_name, col_series))
+
+    # Compare equivalents and detect conflicts
+    clean_dict = {}
+    for canon_name, col_list in groups.items():
+        if len(col_list) == 1:
+            clean_dict[canon_name] = col_list[0][1]
+        else:
+            first_name, first_series = col_list[0]
+            for other_name, other_series in col_list[1:]:
+                if not are_series_equivalent(first_series, other_series):
+                    raise ValueError(
+                        f"CSV validation failed: Conflicting values detected between columns mapping to '{canon_name}' "
+                        f"('{first_name}' vs '{other_name}'). Conflicting columns cannot be merged."
+                    )
+            clean_dict[canon_name] = first_series
+
+    return pd.DataFrame(clean_dict, index=df.index)
 
 
 def parse_csv_bytes(file_bytes: bytes) -> Tuple[pd.DataFrame, str]:
@@ -137,14 +245,10 @@ def parse_csv_bytes(file_bytes: bytes) -> Tuple[pd.DataFrame, str]:
     if df.empty or len(df.columns) == 0:
         raise ValueError("Uploaded CSV contains no tabular data or columns.")
 
-    # Clean column names
     original_cols = list(df.columns)
-    df.columns = [clean_column_name(c) for c in df.columns]
 
-    # Drop explicit ground-truth label columns to ensure they are never model inputs
-    for lbl in LABEL_COLUMNS:
-        if lbl in df.columns:
-            df = df.drop(columns=[lbl])
+    # Safely normalize aliases, exclude ground-truth labels, and deduplicate equivalent columns
+    df = normalize_and_deduplicate_dataframe(df)
 
     # Case 1: Check if event profiles (bp_01 to bp_08) are present
     if all(col in df.columns for col in PROFILE_COLS):
@@ -153,14 +257,7 @@ def parse_csv_bytes(file_bytes: bytes) -> Tuple[pd.DataFrame, str]:
             df[bp] = pd.to_numeric(df[bp], errors="coerce")
         return df, "profile"
 
-    # Case 2: Network Flow CSV - Map aliases to canonical names
-    rename_map = {}
-    for c in df.columns:
-        if c in CANONICAL_FLOW_FIELDS:
-            rename_map[c] = CANONICAL_FLOW_FIELDS[c]
-    df = df.rename(columns=rename_map)
-
-    # Check presence of essential flow features
+    # Case 2: Network Flow CSV - Check presence of essential flow features
     missing_flow = [f for f in REQUIRED_FLOW_FEATURES if f not in df.columns]
     if missing_flow:
         raise ValueError(
@@ -296,17 +393,12 @@ def parse_txt_bytes(file_bytes: bytes, filename: str = "") -> Tuple[pd.DataFrame
     # Strategy 1: Check if event profiles (bp_01 to bp_08) or CSV-like table in text
     try:
         csv_df = pd.read_csv(io.StringIO(text), sep=None, engine="python")
-        csv_df.columns = [clean_column_name(c) for c in csv_df.columns]
+        csv_df = normalize_and_deduplicate_dataframe(csv_df)
         if all(bp in csv_df.columns for bp in PROFILE_COLS):
             for bp in PROFILE_COLS:
                 csv_df[bp] = pd.to_numeric(csv_df[bp], errors="coerce")
             return csv_df, "profile"
-        rename_map = {c: CANONICAL_FLOW_FIELDS[c] for c in csv_df.columns if c in CANONICAL_FLOW_FIELDS}
-        csv_df = csv_df.rename(columns=rename_map)
         if any(f in csv_df.columns for f in REQUIRED_FLOW_FEATURES):
-            for lbl in LABEL_COLUMNS:
-                if lbl in csv_df.columns:
-                    csv_df = csv_df.drop(columns=[lbl])
             return csv_df, "flow"
     except Exception:
         pass
@@ -320,16 +412,11 @@ def parse_txt_bytes(file_bytes: bytes, filename: str = "") -> Tuple[pd.DataFrame
                 data = [data]
             if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
                 json_df = pd.DataFrame(data)
-                json_df.columns = [clean_column_name(c) for c in json_df.columns]
+                json_df = normalize_and_deduplicate_dataframe(json_df)
                 if all(bp in json_df.columns for bp in PROFILE_COLS):
                     for bp in PROFILE_COLS:
                         json_df[bp] = pd.to_numeric(json_df[bp], errors="coerce")
                     return json_df, "profile"
-                rename_map = {c: CANONICAL_FLOW_FIELDS[c] for c in json_df.columns if c in CANONICAL_FLOW_FIELDS}
-                json_df = json_df.rename(columns=rename_map)
-                for lbl in LABEL_COLUMNS:
-                    if lbl in json_df.columns:
-                        json_df = json_df.drop(columns=[lbl])
                 return json_df, "flow"
         except Exception:
             pass
@@ -338,9 +425,7 @@ def parse_txt_bytes(file_bytes: bytes, filename: str = "") -> Tuple[pd.DataFrame
     records = extract_flow_records_from_text(text)
     if records:
         df = pd.DataFrame(records)
-        for lbl in LABEL_COLUMNS:
-            if lbl in df.columns:
-                df = df.drop(columns=[lbl])
+        df = normalize_and_deduplicate_dataframe(df)
 
         numeric_fields = [
             "flow_packets_s", "flow_bytes_s", "syn_flag_count", "flow_duration",

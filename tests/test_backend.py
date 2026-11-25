@@ -288,6 +288,139 @@ class TestFileParsers(unittest.TestCase):
         self.assertIn("threats_detected", data)
 
 
+class TestCSVIngestionRegression(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls._orig_db_path = backend.database.DB_PATH
+        cls._orig_exp_id = siem_service.experiment_id
+        cls._test_db_path = Path("data/test_detection_history_csv_regression.db")
+        backend.database.DB_PATH = cls._test_db_path
+        backend.database.init_db()
+        siem_service.set_experiment("B")
+        cls.client = TestClient(app)
+
+    @classmethod
+    def tearDownClass(cls):
+        siem_service.set_experiment(cls._orig_exp_id)
+        backend.database.DB_PATH = cls._orig_db_path
+        if cls._test_db_path.exists():
+            try:
+                cls._test_db_path.unlink()
+            except Exception:
+                pass
+
+    def test_identical_duration_and_flow_duration_merged_safely(self):
+        csv_bytes = (
+            "protocol,dst_port,duration,fwd_pkts,bwd_pkts,flow_packets_s,flow_bytes_s,syn_flag_count,flow_duration\n"
+            "6,80,5000,10,5,100,2000,2,5000\n"
+            "17,443,12000,20,15,50,1500,0,12000\n"
+        ).encode("utf-8")
+        df, kind = parse_csv_bytes(csv_bytes)
+        self.assertEqual(kind, "flow")
+        self.assertIn("flow_duration", df.columns)
+        self.assertEqual(list(df.columns).count("flow_duration"), 1)
+        self.assertEqual(df["flow_duration"].tolist(), [5000.0, 12000.0])
+
+    def test_conflicting_duration_and_flow_duration_rejected(self):
+        csv_bytes = (
+            "protocol,dst_port,duration,fwd_pkts,bwd_pkts,flow_packets_s,flow_bytes_s,syn_flag_count,flow_duration\n"
+            "6,80,5000,10,5,100,2000,2,9999\n"
+        ).encode("utf-8")
+        with self.assertRaises(ValueError) as ctx:
+            parse_csv_bytes(csv_bytes)
+        self.assertIn("Conflicting values detected between columns mapping to 'flow_duration'", str(ctx.exception))
+
+        # Also verify API endpoint returns HTTP 400
+        resp = self.client.post("/api/detect/upload", files={"file": ("conflicting.csv", csv_bytes, "text/csv")})
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("Conflicting values detected", resp.json()["detail"])
+
+    def test_duplicate_canonical_headers(self):
+        # Identical duplicate canonical headers: safely merged
+        csv_identical = (
+            "flow_duration,flow_duration,flow_packets_s,flow_bytes_s,syn_flag_count\n"
+            "3000,3000,500,1000,1\n"
+        ).encode("utf-8")
+        df, kind = parse_csv_bytes(csv_identical)
+        self.assertEqual(kind, "flow")
+        self.assertEqual(list(df.columns).count("flow_duration"), 1)
+
+        # Conflicting duplicate canonical headers: rejected with ValueError / HTTP 400
+        csv_conflicting = (
+            "flow_duration,flow_duration,flow_packets_s,flow_bytes_s,syn_flag_count\n"
+            "3000,7000,500,1000,1\n"
+        ).encode("utf-8")
+        with self.assertRaises(ValueError) as ctx:
+            parse_csv_bytes(csv_conflicting)
+        self.assertIn("Conflicting values detected", str(ctx.exception))
+
+        resp = self.client.post("/api/detect/upload", files={"file": ("dup_conflict.csv", csv_conflicting, "text/csv")})
+        self.assertEqual(resp.status_code, 400)
+
+        # Duplicate basepoint headers: safely merged
+        csv_bp_identical = (
+            "bp_01,bp_01,bp_02,bp_03,bp_04,bp_05,bp_06,bp_07,bp_08\n"
+            "0.5,0.5,0.2,0.1,0.0,0.4,0.6,0.5,0.1\n"
+        ).encode("utf-8")
+        df_bp, kind_bp = parse_csv_bytes(csv_bp_identical)
+        self.assertEqual(kind_bp, "profile")
+        self.assertEqual(list(df_bp.columns).count("bp_01"), 1)
+
+    def test_ground_truth_label_exclusion(self):
+        csv_bytes = (
+            "flow_duration,flow_packets_s,flow_bytes_s,syn_flag_count,actual_label,threat_type,label,attack_type,target_binary\n"
+            "3000,500,1000,1,THREAT,Scanning-like,ATTACK,PortScan,1\n"
+        ).encode("utf-8")
+        df, kind = parse_csv_bytes(csv_bytes)
+        self.assertEqual(kind, "flow")
+        for lbl in ["actual_label", "threat_type", "label", "attack_type", "target_binary"]:
+            self.assertNotIn(lbl, df.columns)
+
+    def test_missing_timestamp_source_ip_destination_ip_returns_422(self):
+        # CSV with flow metrics but without timestamp, source_ip, destination_ip (like combined_ai_siem_dataset.csv)
+        csv_bytes = (
+            "protocol,dst_port,duration,fwd_pkts,bwd_pkts,flow_packets_s,flow_bytes_s,syn_flag_count,flow_duration,actual_label,threat_type\n"
+            "6,990,8317,11,3,2,673,4,8317,THREAT,Scanning-like\n"
+            "6,590,8424,6,1,1,332,4,8424,THREAT,Scanning-like\n"
+        ).encode("utf-8")
+        resp = self.client.post("/api/detect/upload", files={"file": ("combined_ai_siem_dataset.csv", csv_bytes, "text/csv")})
+        self.assertEqual(resp.status_code, 422)
+        data = resp.json()["detail"]
+        self.assertEqual(data["error"], "MissingFeatureColumnsError")
+        self.assertIn("Missing required flow columns", data["message"])
+        self.assertIn("destination_ip", data["message"])
+        self.assertIn("source_ip", data["message"])
+        self.assertIn("timestamp", data["message"])
+        self.assertNotIn("Inference error", str(resp.json()))
+
+    def test_valid_raw_flow_csv_processed_successfully(self):
+        lines = ["source_ip,destination_ip,source_port,destination_port,protocol,timestamp,flow_duration,flow_packets_s,flow_bytes_s,syn_flag_count"]
+        for b in range(12):
+            for f in range(2):
+                ts = f"2017-07-04 09:{b:02d}:{f * 20:02d}"
+                lines.append(f"172.16.0.1,192.168.10.50,1024,21,TCP,{ts},1500.0,500000.0,2000000.0,2")
+        csv_bytes = "\n".join(lines).encode("utf-8")
+        resp = self.client.post("/api/detect/upload", files={"file": ("valid_raw_flow.csv", csv_bytes, "text/csv")})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertGreaterEqual(data["total_processed"], 1)
+        self.assertEqual(data["detected_type"], "flow")
+
+    def test_valid_bp01_through_bp08_csv_processed_successfully(self):
+        csv_bytes = (
+            "event_set_id,window_id,k,source_ip,destination_ip,destination_port,protocol,n_flows,bp_01,bp_02,bp_03,bp_04,bp_05,bp_06,bp_07,bp_08\n"
+            "ES0000001,W00000,0,10.0.0.1,192.168.1.100,80,TCP,10,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0\n"
+            "ES0000002,W00001,1,10.0.0.2,192.168.1.100,21,TCP,15,0.90,0.20,0.05,0.05,0.80,0.90,0.85,0.05\n"
+        ).encode("utf-8")
+        resp = self.client.post("/api/detect/upload", files={"file": ("valid_profiles.csv", csv_bytes, "text/csv")})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["total_records"], 2)
+        self.assertEqual(data["detected_type"], "profile")
+        self.assertGreaterEqual(data["threats_detected"], 1)
+        self.assertGreaterEqual(data["normal_events"], 1)
+
+
 class TestDashboardRequirements(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

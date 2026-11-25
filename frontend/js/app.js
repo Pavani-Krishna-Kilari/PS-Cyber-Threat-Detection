@@ -23,12 +23,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   initThemeToggle();
   initTabNavigation();
   initAnalyzerEvents();
-  initEnsembleControls();
   initAnomalyControls();
   initHistoryControls();
   initAssistantControls();
   initFloatingChatbot();
   initOperatorAuthStatus();
+  initDriftSubnav();
+  initTrainingStudioControls();
 
   await loadInitialTelemetry();
 });
@@ -57,6 +58,82 @@ function updateThemeBtnLabel(btn, theme) {
   }
 }
 
+let currentOperator = null;
+
+export function getCurrentOperator() {
+  if (!currentOperator) {
+    const raw = localStorage.getItem("siem_operator") || sessionStorage.getItem("siem_operator");
+    if (raw) {
+      try { currentOperator = JSON.parse(raw); } catch (_) {}
+    }
+  }
+  return currentOperator;
+}
+
+export function isHeadOfSocUser() {
+  const op = getCurrentOperator();
+  if (!op) return false;
+  if (Array.isArray(op.permissions) && op.permissions.includes("view_drift")) {
+    return true;
+  }
+  return op.role_id === "HEAD_OF_SOC";
+}
+
+export function applyRolePermissions(isHeadOfSoc) {
+  const headOfSocElements = document.querySelectorAll(".head-of-soc-feature");
+  const navDrift = document.getElementById("navDrift");
+  const kpiDriftCard = document.getElementById("kpiDriftCard");
+  const socDriftAlertBanner = document.getElementById("socDriftAlertBanner");
+  const repMetricDriftCard = document.getElementById("repMetricDriftCard");
+  const operatorRoleBadge = document.getElementById("operatorRoleBadge");
+  const sidebarRoleLabel = document.getElementById("sidebarRoleLabel");
+
+  if (isHeadOfSoc) {
+    headOfSocElements.forEach(el => {
+      if (el.id === "navDrift") {
+        el.style.display = "flex";
+      } else if (el.id === "kpiDriftCard") {
+        el.style.display = "block";
+      } else if (el.id === "repMetricDriftCard") {
+        el.style.display = "block";
+      } else if (el.id === "socDriftAlertBanner") {
+        // Shown only if there is an active drift alert
+      } else if (el.classList.contains("tab-view")) {
+        // Managed by switchView
+      } else {
+        el.style.display = "";
+      }
+    });
+
+    if (operatorRoleBadge) {
+      operatorRoleBadge.innerText = "Head of SOC";
+      operatorRoleBadge.className = "badge badge-threat";
+    }
+    if (sidebarRoleLabel) {
+      sidebarRoleLabel.innerText = "Role: Head of SOC";
+      sidebarRoleLabel.style.color = "var(--accent-red)";
+    }
+  } else {
+    // Regular Security Analyst or unauthenticated
+    headOfSocElements.forEach(el => {
+      el.style.display = "none";
+    });
+    if (navDrift) navDrift.style.display = "none";
+    if (kpiDriftCard) kpiDriftCard.style.display = "none";
+    if (socDriftAlertBanner) socDriftAlertBanner.style.display = "none";
+    if (repMetricDriftCard) repMetricDriftCard.style.display = "none";
+
+    if (operatorRoleBadge) {
+      operatorRoleBadge.innerText = "Security Analyst";
+      operatorRoleBadge.className = "badge badge-info";
+    }
+    if (sidebarRoleLabel) {
+      sidebarRoleLabel.innerText = "Role: Regular Security Analyst";
+      sidebarRoleLabel.style.color = "var(--accent-cyan)";
+    }
+  }
+}
+
 function initOperatorAuthStatus() {
   const nameEl = document.getElementById("operatorDisplayName");
   const authActionBtn = document.getElementById("btnAuthAction");
@@ -68,6 +145,10 @@ function initOperatorAuthStatus() {
   if (storedUserRaw && token) {
     try {
       const user = JSON.parse(storedUserRaw);
+      currentOperator = user;
+      const isHead = isHeadOfSocUser();
+      applyRolePermissions(isHead);
+
       nameEl.innerText = `${user.name || 'SOC Analyst'} (${user.callsign || 'Overwatch'})`;
       authActionBtn.innerText = "Sign Out";
       authActionBtn.addEventListener("click", (e) => {
@@ -101,6 +182,13 @@ function initOperatorAuthStatus() {
             } else {
               window.location.replace("/login");
             }
+          } else {
+            return res.json().then(freshUser => {
+              if (freshUser && freshUser.role_id) {
+                currentOperator = freshUser;
+                applyRolePermissions(isHeadOfSocUser());
+              }
+            });
           }
         })
         .catch(() => {});
@@ -109,6 +197,8 @@ function initOperatorAuthStatus() {
   }
 
   // Not logged in default state
+  currentOperator = null;
+  applyRolePermissions(false);
   nameEl.innerText = "Guest Analyst";
   authActionBtn.innerText = "Sign In";
   authActionBtn.href = "/login";
@@ -117,33 +207,69 @@ function initOperatorAuthStatus() {
 // -----------------------------------------------------------------------------
 // Tab Navigation Router (9 Planned SOC Sections)
 // -----------------------------------------------------------------------------
-function initTabNavigation() {
+function switchView(targetView) {
+  if (!targetView) return;
+
+  // Role-based Router Guard
+  if (targetView === "view-drift" && !isHeadOfSocUser()) {
+    console.warn("Access denied: Data Drift and Candidate Studio require Head of SOC privileges.");
+    switchView("view-dashboard");
+    return;
+  }
+
   const navItems = document.querySelectorAll(".nav-item");
   const views = document.querySelectorAll(".tab-view");
   const pageTitle = document.getElementById("pageTitle");
+
+  navItems.forEach(n => n.classList.remove("active"));
+  views.forEach(v => v.classList.remove("active"));
+
+  const targetNav = document.querySelector(`.nav-item[data-view="${targetView}"]`);
+  if (targetNav) targetNav.classList.add("active");
+
+  const activeEl = document.getElementById(targetView);
+  if (activeEl) activeEl.classList.add("active");
+
+  if (pageTitle && targetNav) {
+    pageTitle.innerText = targetNav.querySelector("span:last-child")?.innerText || "SIEM Dashboard";
+  }
+
+  if (targetView === "view-history") {
+    if (!activeStreamRecords || activeStreamRecords.length === 0) {
+      loadThreatStream();
+    }
+  }
+  if (targetView === "view-drift") {
+    loadDriftPageView();
+  }
+}
+
+function initTabNavigation() {
+  const navItems = document.querySelectorAll(".sidebar-nav .nav-item[data-view]");
 
   navItems.forEach(item => {
     item.addEventListener("click", (e) => {
       e.preventDefault();
       const targetView = item.getAttribute("data-view");
-
-      navItems.forEach(n => n.classList.remove("active"));
-      views.forEach(v => v.classList.remove("active"));
-
-      item.classList.add("active");
-      const activeEl = document.getElementById(targetView);
-      if (activeEl) activeEl.classList.add("active");
-
-      if (pageTitle) {
-        pageTitle.innerText = item.querySelector("span:last-child")?.innerText || "SIEM Dashboard";
-      }
-
-      if (targetView === "view-history") {
-        if (!activeStreamRecords || activeStreamRecords.length === 0) {
-          loadThreatStream();
-        }
+      if (targetView) {
+        switchView(targetView);
       }
     });
+  });
+
+  const navDrift = document.getElementById("navDrift");
+  if (navDrift) {
+    navDrift.addEventListener("click", (e) => {
+      e.preventDefault();
+      switchView("view-drift");
+    });
+  }
+
+  document.getElementById("kpiDriftCard")?.addEventListener("click", () => {
+    switchView("view-drift");
+  });
+  document.getElementById("btnRefreshDriftPage")?.addEventListener("click", () => {
+    loadDriftPageView();
   });
 }
 
@@ -205,6 +331,15 @@ export function updateDashboardSummaryUI(summary) {
     if (badgeDet) badgeDet.innerText = "Awaiting Batch Upload";
     if (badgeCat) badgeCat.innerText = "Awaiting Batch Upload";
 
+    const driftBanner = document.getElementById("socDriftAlertBanner");
+    const kpiDrift = document.getElementById("kpiDriftCard");
+    if (!isHeadOfSocUser()) {
+      if (driftBanner) driftBanner.style.display = "none";
+      if (kpiDrift) kpiDrift.style.display = "none";
+    } else if (!currentActiveDriftReport && driftBanner) {
+      driftBanner.style.display = "none";
+    }
+
     charts.renderEmptyChartState("chartDetectionSummary", emptyMsg);
     charts.renderEmptyChartState("chartAttackCategories", emptyMsg);
     return;
@@ -214,39 +349,63 @@ export function updateDashboardSummaryUI(summary) {
   const eventStats = summary.event_set_statistics;
   const campStats = summary.campaign_statistics;
 
-  const total = flowStats?.total_raw_flows ?? summary.total_records ?? 0;
-  const normal = eventStats?.normal_event_sets ?? summary.normal_events ?? 0;
-  const threat = campStats?.total_campaigns ?? summary.threats_detected ?? 0;
-  const known = campStats?.known_threat_campaigns ?? summary.known_threats ?? threat;
-  const unknown = campStats?.unknown_anomalous_campaigns ?? summary.unknown_anomalous ?? 0;
-  const invalid = flowStats?.invalid_flows ?? summary.invalid_records ?? 0;
-  const validTotal = normal + threat;
-  const filename = summary.filename || "Uploaded CSV";
+  // Canonical Field Resolution:
+  // 1. Raw uploaded flows: Top-level summary.total_records is canonical for session flow count,
+  //    falling back to flow_statistics.total_raw_flows.
+  const totalFlows = Number(summary.total_records ?? flowStats?.total_raw_flows ?? 0);
 
-  if (elTotal) elTotal.innerText = total.toLocaleString();
+  // 2. Total generated event sets: Top-level summary.total_processed is canonical for total sliding
+  //    windows/event sets, falling back to event_set_statistics.total_event_sets or totalFlows.
+  const totalEventSets = Number(summary.total_processed ?? eventStats?.total_event_sets ?? totalFlows);
+
+  // 3. Normal event sets: Top-level summary.normal_events is canonical for full-session normal count
+  //    (never overridden by alert-subset event_set_statistics.normal_event_sets), falling back to
+  //    event_set_statistics.normal_event_sets.
+  const normalEventSets = Number(summary.normal_events ?? eventStats?.normal_event_sets ?? 0);
+
+  // 4. Alert event sets (for event-set distribution chart):
+  //    Known threat event sets (ANN alerts) and unknown anomalous event sets.
+  const knownThreatEventSets = Number(
+    eventStats?.ann_alert_sets ??
+    summary.known_threat_event_sets ??
+    summary.model_summary?.fcnn_alerts ??
+    0
+  );
+  const unknownAnomEventSets = Number(
+    eventStats?.unknown_anomalous_sets ??
+    summary.unknown_anomalous_event_sets ??
+    0
+  );
+
+  // 5. Coalesced Security Campaigns (Incident level):
+  const totalCampaigns = Number(campStats?.total_campaigns ?? summary.threats_detected ?? 0);
+  const knownCampaigns = Number(campStats?.known_threat_campaigns ?? summary.known_threats ?? totalCampaigns);
+  const unknownCampaigns = Number(campStats?.unknown_anomalous_campaigns ?? summary.unknown_anomalous ?? 0);
+
+  const invalid = Number(flowStats?.invalid_flows ?? summary.invalid_records ?? 0);
+  const filename = summary.filename || summary.source_name || "Uploaded CSV";
+
+  if (elTotal) elTotal.innerText = totalFlows.toLocaleString();
   if (elTotalSub) {
-    if (summary.detected_type === "profile") {
-      elTotalSub.innerText = `${total.toLocaleString()} profiles uploaded`;
+    if (summary.detected_type === "profile" || summary.input_type === "profile") {
+      elTotalSub.innerText = `${totalFlows.toLocaleString()} profiles uploaded`;
     } else {
-      elTotalSub.innerText = flowStats && eventStats 
-        ? `${flowStats.total_raw_flows.toLocaleString()} flows • ${eventStats.total_event_sets.toLocaleString()} windows`
-        : "Source: Uploaded CSV Batch";
+      elTotalSub.innerText = `${totalFlows.toLocaleString()} flows • ${totalEventSets.toLocaleString()} windows`;
     }
   }
 
-  const normalPct = validTotal > 0 ? ((normal / validTotal) * 100).toFixed(1) : "0.0";
-  const threatPct = validTotal > 0 ? ((threat / validTotal) * 100).toFixed(1) : "0.0";
+  const normalPct = totalEventSets > 0 ? ((normalEventSets / totalEventSets) * 100).toFixed(1) : "0.0";
 
-  if (elNormal) elNormal.innerText = normal.toLocaleString();
+  if (elNormal) elNormal.innerText = normalEventSets.toLocaleString();
   if (elNormalSub) {
-    elNormalSub.innerText = summary.detected_type === "profile" 
+    elNormalSub.innerText = (summary.detected_type === "profile" || summary.input_type === "profile")
       ? `${normalPct}% normal events` 
       : `${normalPct}% normal windows`;
   }
 
-  if (elThreat) elThreat.innerText = threat.toLocaleString();
+  if (elThreat) elThreat.innerText = totalCampaigns.toLocaleString();
   if (elThreatSub) {
-    elThreatSub.innerText = unknown > 0 ? `${known} known, ${unknown} anomalous campaign(s)` : `${threat} alert campaign(s)`;
+    elThreatSub.innerText = unknownCampaigns > 0 ? `${knownCampaigns} known, ${unknownCampaigns} anomalous campaign(s)` : `${totalCampaigns} alert campaign(s)`;
   }
 
   if (elInvalid) elInvalid.innerText = invalid.toLocaleString();
@@ -257,7 +416,9 @@ export function updateDashboardSummaryUI(summary) {
     noticeBox.style.borderLeft = "3px solid var(--accent-green)";
   }
   if (noticeText) {
-    const extraInfo = eventStats ? `${total.toLocaleString()} flows • ${eventStats.total_event_sets.toLocaleString()} windows analysed` : `${total.toLocaleString()} records analysed`;
+    const extraInfo = (summary.detected_type === "profile" || summary.input_type === "profile")
+      ? `${totalFlows.toLocaleString()} profiles analysed`
+      : `${totalFlows.toLocaleString()} flows • ${totalEventSets.toLocaleString()} windows analysed`;
     noticeText.innerHTML = `✅ Active Batch Dataset: <strong>${escapeHtml(filename)}</strong> (${extraInfo} • Source: Uploaded CSV Batch)`;
   }
   if (noticeBadge) {
@@ -267,9 +428,124 @@ export function updateDashboardSummaryUI(summary) {
   if (badgeDet) badgeDet.innerText = `Source: Uploaded CSV Batch (${filename})`;
   if (badgeCat) badgeCat.innerText = `Source: Uploaded CSV Batch (${filename})`;
 
-  // Render Charts from actual latest batch analysis
-  charts.renderDetectionSummaryDoughnut("chartDetectionSummary", normal, known, unknown);
+  // Render Charts from actual latest batch analysis:
+  // Normal vs Threat Distribution Chart strictly uses EVENT SETS as the common unit
+  charts.renderDetectionSummaryDoughnut("chartDetectionSummary", normalEventSets, knownThreatEventSets, unknownAnomEventSets);
   charts.renderThreatCategoryChart("chartAttackCategories", summary.attack_categories || {});
+
+  // Update Dual-Layer Data Drift Alert Banner (Head of SOC Only)
+  if (isHeadOfSocUser()) {
+    if (summary.drift_analysis) {
+      updateDriftBannerUI(summary.drift_analysis, false);
+    } else {
+      api.fetchLatestDrift().then(res => {
+        if (!isHeadOfSocUser()) {
+          const driftBanner = document.getElementById("socDriftAlertBanner");
+          const kpiDrift = document.getElementById("kpiDriftCard");
+          if (driftBanner) driftBanner.style.display = "none";
+          if (kpiDrift) kpiDrift.style.display = "none";
+          return;
+        }
+        if (res && res.has_drift && res.report) {
+          updateDriftBannerUI(res.report, true);
+        } else {
+          const driftBanner = document.getElementById("socDriftAlertBanner");
+          if (driftBanner) driftBanner.style.display = "none";
+          const socKpiDrift = document.getElementById("socKpiDriftScore");
+          const socKpiDriftSub = document.getElementById("socKpiDriftSubtitle");
+          if (socKpiDrift) {
+            socKpiDrift.innerText = "N/A";
+            socKpiDrift.style.color = "var(--text-muted)";
+          }
+          if (socKpiDriftSub) socKpiDriftSub.innerText = "Baseline: Exp B";
+        }
+      }).catch(() => {
+        const driftBanner = document.getElementById("socDriftAlertBanner");
+        if (driftBanner) driftBanner.style.display = "none";
+      });
+    }
+  } else {
+    // Security Analyst: completely remove Data Drift alert banner and KPI card
+    const driftBanner = document.getElementById("socDriftAlertBanner");
+    const kpiDrift = document.getElementById("kpiDriftCard");
+    if (driftBanner) driftBanner.style.display = "none";
+    if (kpiDrift) kpiDrift.style.display = "none";
+  }
+}
+
+let currentActiveDriftReport = null;
+let currentReportDriftData = null;
+
+function updateDriftBannerUI(da, isHistoricalOrLatestRecorded = false) {
+  if (!isHeadOfSocUser()) {
+    const driftBanner = document.getElementById("socDriftAlertBanner");
+    const kpiDrift = document.getElementById("kpiDriftCard");
+    if (driftBanner) driftBanner.style.display = "none";
+    if (kpiDrift) kpiDrift.style.display = "none";
+    return;
+  }
+
+  currentActiveDriftReport = da;
+  const driftBanner = document.getElementById("socDriftAlertBanner");
+  const driftBadge = document.getElementById("socDriftBadge");
+  const driftText = document.getElementById("socDriftAlertText");
+  const driftTitle = document.getElementById("socDriftAlertTitle");
+  const socKpiDrift = document.getElementById("socKpiDriftScore");
+  const socKpiDriftSub = document.getElementById("socKpiDriftSubtitle");
+  if (!driftBanner) return;
+
+  const isSig = da.drift_status === "SIGNIFICANT" || da.recommendation_alert;
+  const isMod = da.drift_status === "MODERATE";
+  driftBanner.style.display = "flex";
+
+  if (isSig) {
+    driftBanner.style.borderLeft = "4px solid var(--accent-red)";
+    driftBanner.style.background = "rgba(255, 77, 77, 0.08)";
+    if (driftTitle) {
+      driftTitle.style.color = "var(--accent-red)";
+      driftTitle.innerText = "Training Dataset Update Recommended";
+    }
+    if (driftBadge) {
+      driftBadge.className = "badge badge-danger";
+      driftBadge.innerText = `DRIFT: ${da.overall_drift_percentage}% (SIGNIFICANT)`;
+    }
+  } else if (isMod) {
+    driftBanner.style.borderLeft = "4px solid var(--accent-amber)";
+    driftBanner.style.background = "rgba(255, 171, 0, 0.08)";
+    if (driftTitle) {
+      driftTitle.style.color = "var(--accent-amber)";
+      driftTitle.innerText = "Moderate Distribution Drift Detected";
+    }
+    if (driftBadge) {
+      driftBadge.className = "badge badge-warning";
+      driftBadge.innerText = `DRIFT: ${da.overall_drift_percentage}% (MODERATE)`;
+    }
+  } else {
+    driftBanner.style.borderLeft = "4px solid var(--accent-green)";
+    driftBanner.style.background = "rgba(0, 230, 118, 0.08)";
+    if (driftTitle) {
+      driftTitle.style.color = "var(--accent-green)";
+      driftTitle.innerText = "Baseline Drift Status: Low";
+    }
+    if (driftBadge) {
+      driftBadge.className = "badge badge-normal";
+      driftBadge.innerText = `DRIFT: ${da.overall_drift_percentage}% (LOW)`;
+    }
+  }
+  if (driftText) {
+    const originLabel = isHistoricalOrLatestRecorded
+      ? `<span style="font-weight: 600; color: var(--accent-cyan);">[Latest Recorded • Session: <code>${escapeHtml(da.session_id || "Historical")}</code> • ${escapeHtml(da.timestamp || "")}]</span> `
+      : `<span style="font-weight: 600; color: var(--accent-green);">[Active Ingestion Batch]</span> `;
+    driftText.innerHTML = originLabel + escapeHtml(da.recommendation_message || "Distribution drift relative to training baseline.");
+  }
+
+  if (socKpiDrift) {
+    socKpiDrift.innerText = `${da.overall_drift_percentage}%`;
+    socKpiDrift.style.color = isSig ? "var(--accent-red)" : (isMod ? "var(--accent-amber)" : "var(--accent-green)");
+  }
+  if (socKpiDriftSub) {
+    socKpiDriftSub.innerText = `${da.drift_status || "LOW"}${isHistoricalOrLatestRecorded ? " (Latest)" : " (Active Batch)"}`;
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -277,13 +553,15 @@ export function updateDashboardSummaryUI(summary) {
 // -----------------------------------------------------------------------------
 async function loadInitialTelemetry() {
   try {
-    const [status, summary, profiles, benchmarks, anomaly, history] = await Promise.all([
+    const isHead = isHeadOfSocUser();
+    const [status, summary, profiles, benchmarks, anomaly, history, latestDrift] = await Promise.all([
       api.fetchSystemStatus(),
       api.fetchDashboardSummary(),
       api.fetchProfilesOverview(),
       api.fetchModelBenchmarks(),
       api.fetchAnomalyOverview(),
-      api.fetchDetectionHistory({ limit: 50 })
+      api.fetchDetectionHistory({ limit: 50 }),
+      isHead ? api.fetchLatestDrift().catch(() => null) : Promise.resolve(null)
     ]);
 
     // Update Status Pill
@@ -298,34 +576,55 @@ async function loadInitialTelemetry() {
       activeExpLabel.innerText = `Experiment ${status.experiment_id}`;
     }
 
-    // Sync Ensemble Sliders from active config
-    if (status.ensemble_config) {
+    // Sync Read-Only Ensemble & Anomaly Configuration from active backend config
+    if (status && status.ensemble_config) {
       const ensThresh = Number(status.ensemble_config.threshold || 0.6561).toFixed(4);
-      const sliderThresh = document.getElementById("sliderThreshold");
-      const valThresh = document.getElementById("valThreshold");
-      if (sliderThresh) sliderThresh.value = ensThresh;
-      if (valThresh) valThresh.innerText = ensThresh;
+      const cfgEnsThreshEl = document.getElementById("cfgEnsembleThreshold");
+      if (cfgEnsThreshEl) cfgEnsThreshEl.innerText = ensThresh;
 
       const weights = status.ensemble_config.weights;
       if (Array.isArray(weights) && weights.length >= 3) {
         const [w1, w2, w3] = weights.map(w => Number(w).toFixed(2));
-        const s1 = document.getElementById("sliderWeightFcnn");
-        const s2 = document.getElementById("sliderWeightCnn");
-        const s3 = document.getElementById("sliderWeightLstm");
-        const v1 = document.getElementById("valWeightFcnn");
-        const v2 = document.getElementById("valWeightCnn");
-        const v3 = document.getElementById("valWeightLstm");
-        if (s1) s1.value = w1;
-        if (s2) s2.value = w2;
-        if (s3) s3.value = w3;
-        if (v1) v1.innerText = w1;
-        if (v2) v2.innerText = w2;
-        if (v3) v3.innerText = w3;
+        const cfgFcnn = document.getElementById("cfgFcnnWeight");
+        const cfgCnn = document.getElementById("cfgCnnWeight");
+        const cfgLstm = document.getElementById("cfgLstmWeight");
+        if (cfgFcnn) cfgFcnn.innerText = w1;
+        if (cfgCnn) cfgCnn.innerText = w2;
+        if (cfgLstm) cfgLstm.innerText = w3;
+      }
+    }
+
+    if (anomaly && anomaly.optimal_threshold !== undefined && anomaly.optimal_threshold !== null) {
+      const cfgIsoEl = document.getElementById("cfgIsoThreshold");
+      if (cfgIsoEl) {
+        cfgIsoEl.innerText = Number(anomaly.optimal_threshold).toFixed(6);
       }
     }
 
     // Home / SOC Overview: Update Detection Cards (starts at 0 if no analysis)
     updateDashboardSummaryUI(summary);
+
+    // If no active batch summary exists, ensure latest recorded drift is displayed (Head of SOC Only)
+    if (isHeadOfSocUser()) {
+      if (!summary || !summary.has_data) {
+        if (latestDrift && latestDrift.has_drift && latestDrift.report) {
+          updateDriftBannerUI(latestDrift.report, true);
+        } else {
+          const socKpiDrift = document.getElementById("socKpiDriftScore");
+          const socKpiDriftSub = document.getElementById("socKpiDriftSubtitle");
+          if (socKpiDrift) {
+            socKpiDrift.innerText = "N/A";
+            socKpiDrift.style.color = "var(--text-muted)";
+          }
+          if (socKpiDriftSub) socKpiDriftSub.innerText = "Baseline: Exp B";
+        }
+      }
+    } else {
+      const driftBanner = document.getElementById("socDriftAlertBanner");
+      const kpiDrift = document.getElementById("kpiDriftCard");
+      if (driftBanner) driftBanner.style.display = "none";
+      if (kpiDrift) kpiDrift.style.display = "none";
+    }
 
     // Populate Historical/Model Hub & Event Profiles Tables
     populateBasepointsTable(profiles.basepoints || []);
@@ -572,145 +871,445 @@ async function clearBatchResults() {
   clearThreatStreamUI();
 }
 
-async function handleFileUpload(file) {
+let currentUploadController = null;
+let activeUploadSession = null;
+
+function renderCompletedAnalysisResults(res, defaultFilename = "") {
   const statusEl = document.getElementById("uploadStatus");
   const metricsPanel = document.getElementById("batchMetricsPanel");
+
+  const flowStats = res.flow_statistics || {};
+  const eventStats = res.event_set_statistics || {};
+  const campStats = res.campaign_statistics || {};
+
+  const totalRawFlows = Number(res.total_records ?? flowStats.total_raw_flows ?? 0);
+  const totalSets = Number(res.total_processed ?? eventStats.total_event_sets ?? totalRawFlows);
+  const normalSets = Number(res.normal_events ?? eventStats.normal_event_sets ?? 0);
+  const totalCampaigns = Number(campStats.total_campaigns ?? res.threats_detected ?? 0);
+  const threatCampaigns = Number(campStats.known_threat_campaigns ?? res.known_threats ?? 0);
+  const anomCampaigns = Number(campStats.unknown_anomalous_campaigns ?? res.unknown_anomalous ?? 0);
+  const invalidFlows = Number(flowStats.invalid_flows ?? res.invalid_records ?? 0);
+  const procDuration = res.processing_time_ms ? `${res.processing_time_ms} ms` : "N/A";
+  const captureType = res.detected_type === "flow" ? "Raw Network Flows" : (res.input_type === "flow" ? "Raw Network Flows" : "Event Profiles");
+
   if (statusEl) {
     statusEl.innerHTML = `
-      <div class="batch-status-panel processing">
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <span style="display: inline-block; width: 14px; height: 14px; border: 2px solid var(--accent-cyan); border-right-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite;"></span>
-          <span style="color: var(--accent-cyan); font-weight: 600;">Ingesting, aggregating, and classifying <code>${escapeHtml(file.name)}</code> (${(file.size / 1024).toFixed(1)} KB)...</span>
+      <div class="batch-status-panel complete">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+          <div>
+            <span style="color: var(--accent-green); font-weight: 700;">✅ Batch Analysis Complete</span>
+            <span style="color: var(--text-secondary); margin-left: 8px;"><code>${escapeHtml(res.filename || res.source_name || defaultFilename)}</code> (${escapeHtml(captureType)} • ${procDuration})</span>
+          </div>
+          <button class="btn btn-secondary" id="btnClearBatchResults" type="button" style="padding: 4px 10px; font-size: 12px;">Clear Results</button>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+          <div class="kpi-mini-pill">Total Analysed: <strong>${totalSets.toLocaleString()}</strong></div>
+          <div class="kpi-mini-pill">Uploaded Flows: <strong>${totalRawFlows.toLocaleString()}</strong></div>
+          <div class="kpi-mini-pill">Generated Event Sets: <strong>${totalSets.toLocaleString()}</strong></div>
+          <div class="kpi-mini-pill threat">Alert Campaigns: <strong>${totalCampaigns.toLocaleString()}</strong></div>
+          <div class="kpi-mini-pill normal">Normal Sets: <strong>${normalSets.toLocaleString()}</strong></div>
+          <div class="kpi-mini-pill threat">Known Threats: <strong>${threatCampaigns.toLocaleString()}</strong></div>
+          <div class="kpi-mini-pill warning">Unknown Anomalous: <strong>${anomCampaigns.toLocaleString()}</strong></div>
+          ${invalidFlows > 0 ? `<div class="kpi-mini-pill info">Invalid: <strong>${invalidFlows.toLocaleString()}</strong></div>` : ''}
         </div>
       </div>
     `;
+    document.getElementById("btnClearBatchResults")?.addEventListener("click", clearBatchResults);
   }
 
+  // Populate and show Batch Metrics Panel
+  if (metricsPanel) {
+    metricsPanel.style.display = "block";
+    const elFlows = document.getElementById("metricUploadedFlows");
+    const elSets = document.getElementById("metricGeneratedEventSets");
+    const elCamps = document.getElementById("metricUniqueCampaigns");
+    const elNorm = document.getElementById("metricNormalSets");
+    const elThreatC = document.getElementById("metricKnownThreatCampaigns");
+    const elAnomC = document.getElementById("metricUnknownAnomalousCampaigns");
+    const elDur = document.getElementById("metricProcessingDuration");
+
+    if (elFlows) elFlows.innerText = totalRawFlows.toLocaleString();
+    if (elSets) elSets.innerText = totalSets.toLocaleString();
+    if (elCamps) elCamps.innerText = totalCampaigns.toLocaleString();
+    if (elNorm) elNorm.innerText = normalSets.toLocaleString();
+    if (elThreatC) elThreatC.innerText = threatCampaigns.toLocaleString();
+    if (elAnomC) elAnomC.innerText = anomCampaigns.toLocaleString();
+    if (elDur) elDur.innerText = procDuration;
+  }
+
+  // Render Section A: Known Threats / ANN Alerts
+  renderKnownThreatsTable(res.known_threats_list || []);
+
+  // Render Section B: Unknown Anomalous Activity
+  renderUnknownAnomaliesTable(res.unknown_anomalies_list || []);
+
+  // Render Section C: Coalesced Security Campaigns Table
+  renderCampaignResultsTable(res.campaigns || []);
+
+  // Render Window Batch Table (Collapsible Audit Trail)
+  renderBatchResultsTable(res.sample_results || [], totalSets);
+
+  // Update Dashboard Summary Cards & Charts for SOC Overview
+  updateDashboardSummaryUI(res);
+
+  // Refresh Sessions Archive from SQLite
+  loadSessionsArchive();
+
+  // Load genuine Sliding Window Threat Stream for this newly uploaded session
+  loadThreatStream(res.session_id);
+}
+
+function renderErrorPanel(errMsg, uploadId = null, detailExtra = "", fileHash = null) {
+  const statusEl = document.getElementById("uploadStatus");
+  if (!statusEl) return;
+  const isConnectionError = /failed to fetch|connection|network|retries|timeout|offline/i.test(errMsg || "");
+
+  let actionButtons = '';
+  if (isConnectionError && uploadId) {
+    actionButtons = `
+      <button class="btn btn-primary" id="btnReconnectStatus" type="button" style="padding: 4px 12px; font-size: 12px;">Reconnect & Resume</button>
+      <button class="btn btn-secondary" id="btnClearBatchResults" type="button" style="padding: 4px 10px; font-size: 12px; margin-left: 6px;">Dismiss</button>
+    `;
+  } else {
+    actionButtons = `
+      ${uploadId ? `<button class="btn btn-secondary" id="btnRetryCancel" type="button" style="padding: 4px 10px; font-size: 12px; color: var(--accent-red);">Cancel & Cleanup</button>` : ''}
+      <button class="btn btn-secondary" id="btnClearBatchResults" type="button" style="padding: 4px 10px; font-size: 12px; margin-left: 6px;">Dismiss</button>
+    `;
+  }
+
+  statusEl.innerHTML = `
+    <div class="batch-status-panel" style="border-left: 3px solid var(--accent-red);">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+        <div>
+          <span style="color: var(--accent-red); font-weight: 600;">⚠️ Ingestion Error: ${escapeHtml(errMsg)}</span>
+          ${isConnectionError ? '<div style="margin-top: 4px; font-size: 11.5px; color: var(--text-muted);">Background analysis may still be executing on the server. Click Reconnect & Resume to re-attach.</div>' : ''}
+          ${detailExtra}
+        </div>
+        <div style="display: flex; gap: 6px; align-items: center;">
+          ${actionButtons}
+        </div>
+      </div>
+    </div>
+  `;
+  document.getElementById("btnClearBatchResults")?.addEventListener("click", clearBatchResults);
+  if (document.getElementById("btnReconnectStatus")) {
+    document.getElementById("btnReconnectStatus").addEventListener("click", () => {
+      resumeActiveProcessing(uploadId, fileHash || activeUploadSession?.fileHash);
+    });
+  }
+  if (uploadId && document.getElementById("btnRetryCancel")) {
+    document.getElementById("btnRetryCancel").addEventListener("click", async () => {
+      try {
+        await api.cancelUploadSession(uploadId);
+      } catch (_) {}
+      clearBatchResults();
+    });
+  }
+}
+
+function renderPausedPanel(uploadId, fileHash, status) {
+  const statusEl = document.getElementById("uploadStatus");
+  if (!statusEl) return;
+  const cBatches = status?.completed_batches ?? 0;
+  const tBatches = status?.total_batches ?? 1;
+  const pRows = status?.processed_rows?.toLocaleString() ?? "0";
+
+  statusEl.innerHTML = `
+    <div class="batch-status-panel" style="border-left: 3px solid var(--accent-amber);">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <span style="color: var(--accent-amber); font-weight: 700;">⏸️ Analysis Paused (Batch ${cBatches} of ${tBatches} • ${pRows} rows)</span>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-primary" id="btnResumeStream" style="padding: 4px 12px; font-size: 12px;">Resume Analysis</button>
+          <button class="btn btn-secondary" id="btnCancelStream" style="padding: 4px 10px; font-size: 12px;">Cancel & Cleanup</button>
+        </div>
+      </div>
+      <p style="font-size: 11.5px; color: var(--text-muted); margin: 0;">
+        Checkpoints are safely saved in SQLite. You can resume processing anytime without reclassifying completed batches.
+      </p>
+    </div>
+  `;
+
+  document.getElementById("btnResumeStream")?.addEventListener("click", () => {
+    resumeActiveProcessing(uploadId, fileHash);
+  });
+  document.getElementById("btnCancelStream")?.addEventListener("click", async () => {
+    try {
+      await api.cancelUploadSession(uploadId);
+    } catch (_) {}
+    clearBatchResults();
+  });
+}
+
+function renderProcessingProgress(info) {
+  const statusEl = document.getElementById("uploadStatus");
+  if (!statusEl) return;
+  const pct = Math.max(0, Math.min(100, Math.round(info.percent || 0)));
+  const cBatches = info.completed_batches || 0;
+  const tBatches = info.total_batches || 1;
+  const pRows = (info.processed_rows || 0).toLocaleString();
+  const tRows = (info.total_rows || 0).toLocaleString();
+  const m = info.metrics || {};
+
+  const warningHtml = info.warning_message ? `
+    <div style="background: rgba(255, 179, 0, 0.15); border: 1px solid var(--accent-amber); border-radius: 4px; padding: 6px 10px; margin-bottom: 8px; font-size: 11.5px; color: var(--accent-amber); animation: pulse 1.5s infinite;">
+      ⚠️ ${escapeHtml(info.warning_message)}
+    </div>
+  ` : '';
+
+  statusEl.innerHTML = `
+    <div class="batch-status-panel processing">
+      ${warningHtml}
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="display: inline-block; width: 12px; height: 12px; border: 2px solid var(--accent-cyan); border-right-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite;"></span>
+          <span style="color: var(--accent-cyan); font-weight: 600;">Streaming Inference: <strong>Batch ${cBatches} of ${tBatches} (${pct}%)</strong></span>
+        </div>
+        <div style="display: flex; gap: 6px;">
+          <button class="btn btn-secondary" id="btnPauseProc" style="padding: 2px 8px; font-size: 11px;">Pause</button>
+          <button class="btn btn-secondary" id="btnCancelProc" style="padding: 2px 8px; font-size: 11px;">Cancel</button>
+        </div>
+      </div>
+      <div style="background: rgba(255,255,255,0.08); height: 8px; border-radius: 4px; overflow: hidden; margin-bottom: 10px;">
+        <div style="background: var(--accent-cyan); width: ${pct}%; height: 100%; transition: width 0.3s;"></div>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 6px; font-size: 11px;">
+        <div class="kpi-mini-pill">Rows Evaluated: <strong>${pRows} / ${tRows}</strong></div>
+        <div class="kpi-mini-pill">Event Sets: <strong>${(m.total_event_sets || 0).toLocaleString()}</strong></div>
+        <div class="kpi-mini-pill normal">Normal: <strong>${(m.normal_event_sets || 0).toLocaleString()}</strong></div>
+        <div class="kpi-mini-pill threat">Known Threats: <strong>${(m.known_threats || 0).toLocaleString()}</strong></div>
+        <div class="kpi-mini-pill warning">Unknown Anomalies: <strong>${(m.unknown_anomalous || 0).toLocaleString()}</strong></div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById("btnPauseProc")?.addEventListener("click", async () => {
+    if (info.upload_id) {
+      try {
+        await api.pauseStreamProcessing(info.upload_id);
+      } catch (err) {
+        console.warn("Pause error:", err);
+      }
+    }
+    if (currentUploadController) currentUploadController.abort();
+  });
+
+  document.getElementById("btnCancelProc")?.addEventListener("click", async () => {
+    if (info.upload_id) {
+      try {
+        await api.pauseStreamProcessing(info.upload_id);
+      } catch (err) {
+        console.warn("Pause error before cancel:", err);
+      }
+    }
+    if (currentUploadController) currentUploadController.abort();
+    renderPausedPanel(info.upload_id, activeUploadSession?.fileHash, {
+      completed_batches: info.completed_batches,
+      total_batches: info.total_batches,
+      processed_rows: info.processed_rows
+    });
+  });
+}
+
+async function resumeActiveProcessing(uploadId, fileHash) {
+  currentUploadController = new AbortController();
+  activeUploadSession = { uploadId, fileHash };
+
   try {
-    const res = await api.uploadThreatFile(file);
-    if (res.error || res.detail) {
-      let errMsg = "";
-      let detailExtra = "";
-      if (typeof res.detail === "object" && res.detail !== null) {
-        errMsg = res.detail.message || res.detail.error || JSON.stringify(res.detail);
-        if (res.detail.details && res.detail.details.extracted_records !== undefined) {
-          detailExtra = `
-            <div style="margin-top: 6px; font-size: 11px; color: var(--text-muted);">
-              Extracted: <strong>${escapeHtml(res.detail.details.extracted_records)}</strong> flow record(s) • Detected columns: <code>${escapeHtml((res.detail.details.columns_found || []).join(", "))}</code>
+    const resumeRes = await api.resumeStreamProcessing(uploadId, fileHash, 20000, false);
+    if (resumeRes.error || resumeRes.detail) {
+      throw new Error(resumeRes.detail?.message || resumeRes.detail || resumeRes.error || "Failed to resume processing.");
+    }
+
+    while (true) {
+      if (currentUploadController?.signal?.aborted) {
+        await api.pauseStreamProcessing(uploadId);
+        return;
+      }
+      await new Promise(r => setTimeout(r, 800));
+      const status = await api.getStreamProcessStatus(uploadId, {
+        maxRetries: 5,
+        retryDelayBaseMs: 1200,
+        signal: currentUploadController?.signal,
+        onRetry: (retryInfo) => {
+          renderProcessingProgress({
+            upload_id: uploadId,
+            percent: 0,
+            warning_message: `Network connection hiccup: retrying status check (${retryInfo.attempt}/${retryInfo.maxRetries}). Background processing is continuing...`
+          });
+        }
+      });
+
+      if (status.processing_status === "FAILED") {
+        throw new Error(status.error_message || "Processing failed.");
+      }
+
+      if (status.processing_status === "PAUSED") {
+        renderPausedPanel(uploadId, fileHash, status);
+        return;
+      }
+
+      if (status.processing_status === "COMPLETED") {
+        const report = await api.fetchSessionReport(status.session_id);
+        renderCompletedAnalysisResults(report, status.filename);
+        activeUploadSession = null;
+        return;
+      }
+
+      renderProcessingProgress({
+        upload_id: uploadId,
+        percent: status.progress_percent || 0,
+        completed_batches: status.completed_batches,
+        total_batches: status.total_batches,
+        processed_rows: status.processed_rows,
+        total_rows: status.total_rows,
+        metrics: status.metrics || {}
+      });
+    }
+  } catch (err) {
+    renderErrorPanel(err.message, uploadId, "", fileHash);
+  }
+}
+
+async function handleFileUpload(file) {
+  const statusEl = document.getElementById("uploadStatus");
+  currentUploadController = new AbortController();
+
+  const isCsv = file.name.toLowerCase().endsWith(".csv");
+  let isProfileCsv = false;
+
+  if (isCsv) {
+    try {
+      const headerSlice = await file.slice(0, 2048).text();
+      const firstLine = (headerSlice.split(/\r?\n/)[0] || "").toLowerCase();
+      const headers = firstLine.split(",").map(h => h.trim().replace(/^["']|["']$/g, "").toLowerCase());
+      const hasAllBps = ["bp_01", "bp_02", "bp_03", "bp_04", "bp_05", "bp_06", "bp_07", "bp_08"].every(bp => headers.includes(bp));
+      if (hasAllBps) {
+        isProfileCsv = true;
+      }
+    } catch (_) {
+      isProfileCsv = false;
+    }
+  }
+
+  if (!isCsv || isProfileCsv) {
+    // Preaggregated Event Profile CSV or Non-CSV captures (TXT, LOG, PDF) use single-payload upload endpoint
+    if (statusEl) {
+      statusEl.innerHTML = `
+        <div class="batch-status-panel processing">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="display: inline-block; width: 14px; height: 14px; border: 2px solid var(--accent-cyan); border-right-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite;"></span>
+            <span style="color: var(--accent-cyan); font-weight: 600;">${isProfileCsv ? "Ingesting and evaluating preaggregated event profiles" : "Ingesting, aggregating, and classifying"} <code>${escapeHtml(file.name)}</code> (${(file.size / 1024).toFixed(1)} KB)...</span>
+          </div>
+        </div>
+      `;
+    }
+
+    try {
+      const res = await api.uploadThreatFile(file);
+      if (res.error || res.detail) {
+        let errMsg = "";
+        let detailExtra = "";
+        if (typeof res.detail === "object" && res.detail !== null) {
+          errMsg = res.detail.message || res.detail.error || JSON.stringify(res.detail);
+          if (res.detail.details && res.detail.details.extracted_records !== undefined) {
+            detailExtra = `
+              <div style="margin-top: 6px; font-size: 11px; color: var(--text-muted);">
+                Extracted: <strong>${escapeHtml(res.detail.details.extracted_records)}</strong> flow record(s) • Detected columns: <code>${escapeHtml((res.detail.details.columns_found || []).join(", "))}</code>
+              </div>
+            `;
+          }
+        } else {
+          errMsg = res.detail || res.error;
+        }
+        renderErrorPanel(errMsg, null, detailExtra);
+        return;
+      }
+      renderCompletedAnalysisResults(res, file.name);
+    } catch (err) {
+      renderErrorPanel(err.message);
+    }
+    return;
+  }
+
+  // Chunked & Resumable CSV Processing Pipeline
+  let activeHash = null;
+  let activeUid = null;
+
+  try {
+    const report = await api.uploadFileChunked(file, {
+      signal: currentUploadController.signal,
+      chunkSize: 5 * 1024 * 1024,
+      batchSize: 20000,
+      pollIntervalMs: 750,
+      onProgress: (p) => {
+        if (p.phase === "HASHING" && statusEl) {
+          statusEl.innerHTML = `
+            <div class="batch-status-panel processing">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span style="color: var(--accent-cyan); font-weight: 600;">🔒 Computing Streaming SHA-256 Checksum: <strong>${p.percent}%</strong></span>
+                <span style="font-size: 11px; color: var(--text-muted);">${(file.size / (1024 * 1024)).toFixed(1)} MB</span>
+              </div>
+              <div style="background: rgba(255,255,255,0.08); height: 8px; border-radius: 4px; overflow: hidden;">
+                <div style="background: var(--accent-cyan); width: ${p.percent}%; height: 100%; transition: width 0.2s;"></div>
+              </div>
             </div>
           `;
         }
-      } else {
-        errMsg = res.detail || res.error;
-      }
-      if (statusEl) {
-        statusEl.innerHTML = `
-          <div class="batch-status-panel" style="border-left: 3px solid var(--accent-red);">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-              <div>
-                <span style="color: var(--accent-red); font-weight: 600;">⚠️ Ingestion Error: ${escapeHtml(errMsg)}</span>
-                ${detailExtra}
+      },
+      onStatusChange: (ev) => {
+        if (ev.upload_id) activeUid = ev.upload_id;
+        if (ev.file_hash) activeHash = ev.file_hash;
+
+        if (ev.phase === "UPLOADING" && statusEl) {
+          statusEl.innerHTML = `
+            <div class="batch-status-panel processing">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span style="color: var(--accent-cyan); font-weight: 600;">⬆️ Uploading Chunks: <strong>Chunk ${ev.chunk_index} of ${ev.total_chunks} (${ev.percent}%)</strong></span>
+                <button class="btn btn-secondary" id="btnCancelChunkUpload" style="padding: 2px 8px; font-size: 11px;">Cancel</button>
               </div>
-              <button class="btn btn-secondary" id="btnClearBatchResults" type="button" style="padding: 4px 10px; font-size: 12px; margin-left: 10px;">Clear</button>
+              <div style="background: rgba(255,255,255,0.08); height: 8px; border-radius: 4px; overflow: hidden;">
+                <div style="background: var(--accent-cyan); width: ${ev.percent}%; height: 100%; transition: width 0.2s;"></div>
+              </div>
             </div>
-          </div>
-        `;
-        document.getElementById("btnClearBatchResults")?.addEventListener("click", clearBatchResults);
+          `;
+          document.getElementById("btnCancelChunkUpload")?.addEventListener("click", async () => {
+            if (activeUid) {
+              try { await api.cancelUploadSession(activeUid); } catch (_) {}
+            }
+            if (currentUploadController) currentUploadController.abort();
+            clearBatchResults();
+          });
+        } else if (ev.phase === "SORTING" && statusEl) {
+          statusEl.innerHTML = `
+            <div class="batch-status-panel processing">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <span style="display: inline-block; width: 14px; height: 14px; border: 2px solid var(--accent-cyan); border-right-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite;"></span>
+                <span style="color: var(--accent-cyan); font-weight: 600;">🔀 External Sort: Chronologically ordering network capture flows...</span>
+              </div>
+            </div>
+          `;
+        } else if (ev.phase === "PROCESSING") {
+          renderProcessingProgress(ev);
+        } else if (ev.phase === "POLLING_RETRY") {
+          renderProcessingProgress({
+            upload_id: activeUid,
+            percent: ev.percent || 0,
+            warning_message: ev.message
+          });
+        } else if (ev.phase === "PAUSED") {
+          renderPausedPanel(ev.upload_id, activeHash, ev.status);
+        }
       }
+    });
+
+    if (report && !report.paused) {
+      renderCompletedAnalysisResults(report, file.name);
+    }
+  } catch (err) {
+    if (err.message && err.message.includes("paused")) {
       return;
     }
-
-    const flowStats = res.flow_statistics || {};
-    const eventStats = res.event_set_statistics || {};
-    const campStats = res.campaign_statistics || {};
-
-    const totalRawFlows = flowStats.total_raw_flows ?? res.total_records ?? 0;
-    const totalSets = eventStats.total_event_sets ?? res.total_records ?? 0;
-    const normalSets = eventStats.normal_event_sets ?? res.normal_events ?? 0;
-    const totalCampaigns = campStats.total_campaigns ?? res.threats_detected ?? 0;
-    const threatCampaigns = campStats.known_threat_campaigns ?? res.known_threats ?? 0;
-    const anomCampaigns = campStats.unknown_anomalous_campaigns ?? res.unknown_anomalous ?? 0;
-    const invalidFlows = flowStats.invalid_flows ?? res.invalid_records ?? 0;
-    const procDuration = res.processing_time_ms ? `${res.processing_time_ms} ms` : "N/A";
-    const captureType = res.detected_type === "flow" ? "Raw Network Flows" : "Event Profiles";
-
-    if (statusEl) {
-      statusEl.innerHTML = `
-        <div class="batch-status-panel complete">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
-            <div>
-              <span style="color: var(--accent-green); font-weight: 700;">✅ Batch Analysis Complete</span>
-              <span style="color: var(--text-secondary); margin-left: 8px;"><code>${escapeHtml(res.filename || file.name)}</code> (${escapeHtml(captureType)} • ${procDuration})</span>
-            </div>
-            <button class="btn btn-secondary" id="btnClearBatchResults" type="button" style="padding: 4px 10px; font-size: 12px;">Clear Results</button>
-          </div>
-          <div style="display: flex; flex-wrap: wrap; gap: 8px;">
-            <div class="kpi-mini-pill">Total Analysed: <strong>${totalSets.toLocaleString()}</strong></div>
-            <div class="kpi-mini-pill">Uploaded Flows: <strong>${totalRawFlows.toLocaleString()}</strong></div>
-            <div class="kpi-mini-pill">Generated Event Sets: <strong>${totalSets.toLocaleString()}</strong></div>
-            <div class="kpi-mini-pill threat">Alert Campaigns: <strong>${totalCampaigns.toLocaleString()}</strong></div>
-            <div class="kpi-mini-pill normal">Normal Sets: <strong>${normalSets.toLocaleString()}</strong></div>
-            <div class="kpi-mini-pill threat">Known Threats: <strong>${threatCampaigns.toLocaleString()}</strong></div>
-            <div class="kpi-mini-pill warning">Unknown Anomalous: <strong>${anomCampaigns.toLocaleString()}</strong></div>
-            ${invalidFlows > 0 ? `<div class="kpi-mini-pill info">Invalid: <strong>${invalidFlows.toLocaleString()}</strong></div>` : ''}
-          </div>
-        </div>
-      `;
-      document.getElementById("btnClearBatchResults")?.addEventListener("click", clearBatchResults);
-    }
-
-    // Populate and show Batch Metrics Panel
-    if (metricsPanel) {
-      metricsPanel.style.display = "block";
-      const elFlows = document.getElementById("metricUploadedFlows");
-      const elSets = document.getElementById("metricGeneratedEventSets");
-      const elCamps = document.getElementById("metricUniqueCampaigns");
-      const elNorm = document.getElementById("metricNormalSets");
-      const elThreatC = document.getElementById("metricKnownThreatCampaigns");
-      const elAnomC = document.getElementById("metricUnknownAnomalousCampaigns");
-      const elDur = document.getElementById("metricProcessingDuration");
-
-      if (elFlows) elFlows.innerText = totalRawFlows.toLocaleString();
-      if (elSets) elSets.innerText = totalSets.toLocaleString();
-      if (elCamps) elCamps.innerText = totalCampaigns.toLocaleString();
-      if (elNorm) elNorm.innerText = normalSets.toLocaleString();
-      if (elThreatC) elThreatC.innerText = threatCampaigns.toLocaleString();
-      if (elAnomC) elAnomC.innerText = anomCampaigns.toLocaleString();
-      if (elDur) elDur.innerText = procDuration;
-    }
-
-    // Render Section A: Known Threats / ANN Alerts
-    renderKnownThreatsTable(res.known_threats_list || []);
-
-    // Render Section B: Unknown Anomalous Activity
-    renderUnknownAnomaliesTable(res.unknown_anomalies_list || []);
-
-    // Render Section C: Coalesced Security Campaigns Table
-    renderCampaignResultsTable(res.campaigns || []);
-
-    // Render Window Batch Table (Collapsible Audit Trail)
-    renderBatchResultsTable(res.sample_results || [], totalSets);
-
-    // Update Dashboard Summary Cards & Charts for SOC Overview
-    updateDashboardSummaryUI(res);
-
-    // Refresh Sessions Archive from SQLite
-    loadSessionsArchive();
-
-    // Load genuine Sliding Window Threat Stream for this newly uploaded session
-    loadThreatStream(res.session_id);
-  } catch (err) {
-    if (statusEl) {
-      statusEl.innerHTML = `
-        <div class="batch-status-panel" style="border-left: 3px solid var(--accent-red);">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="color: var(--accent-red);">Upload failed: ${escapeHtml(err.message)}</span>
-            <button class="btn btn-secondary" id="btnClearBatchResults" type="button" style="padding: 4px 10px; font-size: 12px;">Clear</button>
-          </div>
-        </div>
-      `;
-      document.getElementById("btnClearBatchResults")?.addEventListener("click", clearBatchResults);
-    }
+    renderErrorPanel(err.message, activeUid, "", activeHash);
   }
 }
 
@@ -936,58 +1535,9 @@ function displayVerdict(res) {
 // SECTION 5: Anomaly Detection Controls (Isolation Forest)
 // -----------------------------------------------------------------------------
 function initAnomalyControls() {
-  const form = document.getElementById("anomalyForm");
-  const verdictCard = document.getElementById("isoVerdictCard");
-  const verdictTitle = document.getElementById("isoVerdictTitle");
-  const scoreVal = document.getElementById("isoScoreValue");
-
-  // Presets
-  document.getElementById("btnIsoNormal")?.addEventListener("click", () => {
-    for (let i = 1; i <= 8; i++) {
-      const el = document.getElementById(`isoBp${i}`);
-      if (el) el.value = "0.0";
-    }
-    form?.requestSubmit();
-  });
-
-  document.getElementById("btnIsoAttack")?.addEventListener("click", () => {
-    const vals = [0.85, 0.20, 0.10, 0.05, 0.70, 0.80, 0.75, 0.05];
-    for (let i = 1; i <= 8; i++) {
-      const el = document.getElementById(`isoBp${i}`);
-      if (el) el.value = vals[i - 1].toFixed(2);
-    }
-    form?.requestSubmit();
-  });
-
-  document.getElementById("btnIsoOutlier")?.addEventListener("click", () => {
-    const vals = [0.95, 0.85, 0.90, 0.80, 0.95, 0.90, 0.95, 0.85];
-    for (let i = 1; i <= 8; i++) {
-      const el = document.getElementById(`isoBp${i}`);
-      if (el) el.value = vals[i - 1].toFixed(2);
-    }
-    form?.requestSubmit();
-  });
-
-  form?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const payload = {};
-    for (let i = 1; i <= 8; i++) {
-      payload[`bp_${String(i).padStart(2, "0")}`] = parseFloat(document.getElementById(`isoBp${i}`).value) || 0.0;
-    }
-
-    try {
-      const res = await api.predictAnomaly(payload);
-      if (verdictCard && verdictTitle && scoreVal) {
-        const isAnomaly = res.is_anomaly;
-        verdictCard.className = `verdict-box ${isAnomaly ? "threat" : "normal"}`;
-        verdictTitle.innerText = res.verdict;
-        verdictTitle.style.color = isAnomaly ? "var(--accent-red)" : "var(--accent-green)";
-        scoreVal.innerHTML = `${res.anomaly_score.toFixed(4)} <span style="font-size: 12px; color: var(--text-muted)">/ ${res.threshold.toFixed(4)}</span>`;
-      }
-    } catch (err) {
-      alert("Anomaly evaluation error: " + err.message);
-    }
-  });
+  // Manual profile coordinate editing has been removed in favor of the fully
+  // automated event-profile pipeline. Isolation Forest telemetry and threshold
+  // display are populated dynamically during initial telemetry loading.
 }
 
 // -----------------------------------------------------------------------------
@@ -1168,13 +1718,33 @@ async function viewSessionReport(sessionId) {
     const elAnom = document.getElementById("repMetricAnomalies");
     const elCamps = document.getElementById("repMetricCampaigns");
 
-    if (elFlows) elFlows.innerText = Number(flowStats.total_raw_flows ?? report.total_records ?? 0).toLocaleString();
-    if (elSets) elSets.innerText = Number(eventStats.total_event_sets ?? report.total_records ?? 0).toLocaleString();
-    if (elNorm) elNorm.innerText = Number(eventStats.normal_event_sets ?? report.normal_events ?? 0).toLocaleString();
+    if (elFlows) elFlows.innerText = Number(report.total_records ?? flowStats.total_raw_flows ?? 0).toLocaleString();
+    if (elSets) elSets.innerText = Number(report.total_processed ?? eventStats.total_event_sets ?? report.total_records ?? 0).toLocaleString();
+    if (elNorm) elNorm.innerText = Number(report.normal_events ?? eventStats.normal_event_sets ?? 0).toLocaleString();
     if (elThreat) elThreat.innerText = Number(campStats.known_threat_campaigns ?? report.known_threats ?? 0).toLocaleString();
     if (elAnom) elAnom.innerText = Number(campStats.unknown_anomalous_campaigns ?? report.unknown_anomalous ?? 0).toLocaleString();
     const campTotal = campStats.total_campaigns ?? (report.campaigns ? report.campaigns.length : (report.threats_detected ?? 0));
     if (elCamps) elCamps.innerText = Number(campTotal).toLocaleString();
+
+    // Populate Data Drift Metric Card (Head of SOC Only)
+    const elDrift = document.getElementById("repMetricDrift");
+    const elDriftCard = document.getElementById("repMetricDriftCard");
+    currentReportDriftData = isHeadOfSocUser() ? (report.drift_analysis || null) : null;
+    if (elDriftCard) {
+      elDriftCard.style.display = isHeadOfSocUser() ? "block" : "none";
+    }
+    if (elDrift && isHeadOfSocUser()) {
+      if (currentReportDriftData && currentReportDriftData.overall_drift_percentage !== undefined) {
+        elDrift.innerText = `${currentReportDriftData.overall_drift_percentage}%`;
+        const st = currentReportDriftData.drift_status;
+        elDrift.style.color = st === "SIGNIFICANT" ? "var(--accent-red)" : (st === "MODERATE" ? "var(--accent-amber)" : "var(--accent-green)");
+        elDrift.title = "Click to inspect detailed Dual-Layer Drift Report";
+      } else {
+        elDrift.innerText = "N/A";
+        elDrift.style.color = "var(--text-muted)";
+        elDrift.title = "Historical session: Data drift analysis was not recorded for this session.";
+      }
+    }
 
     // Populate Model Summary
     const ms = report.model_summary || {};
@@ -1182,10 +1752,10 @@ async function viewSessionReport(sessionId) {
     const elCnn = document.getElementById("repModelCnn");
     const elLstm = document.getElementById("repModelLstm");
     const elEns = document.getElementById("repModelEns");
-    if (elFcnn) elFcnn.innerText = `${((ms.fcnn_avg || 0) * 100).toFixed(1)}%`;
-    if (elCnn) elCnn.innerText = `${((ms.cnn_avg || 0) * 100).toFixed(1)}%`;
-    if (elLstm) elLstm.innerText = `${((ms.lstm_avg || 0) * 100).toFixed(1)}%`;
-    if (elEns) elEns.innerText = `${((ms.ensemble_avg || 0) * 100).toFixed(1)}%`;
+    if (elFcnn) elFcnn.innerText = (ms.fcnn_avg !== undefined && ms.fcnn_avg !== null) ? `${(Number(ms.fcnn_avg) * 100).toFixed(1)}%` : "N/A";
+    if (elCnn) elCnn.innerText = (ms.cnn_avg !== undefined && ms.cnn_avg !== null) ? `${(Number(ms.cnn_avg) * 100).toFixed(1)}%` : "N/A";
+    if (elLstm) elLstm.innerText = (ms.lstm_avg !== undefined && ms.lstm_avg !== null) ? `${(Number(ms.lstm_avg) * 100).toFixed(1)}%` : "N/A";
+    if (elEns) elEns.innerText = (ms.ensemble_avg !== undefined && ms.ensemble_avg !== null) ? `${(Number(ms.ensemble_avg) * 100).toFixed(1)}%` : "N/A";
 
     // Render Section A: Known Threats
     renderKnownThreatsTable(report.known_threats_list || [], "reportKnownThreatsTable", "repBadgeKnownThreats");
@@ -1246,6 +1816,344 @@ function closeDeleteModal() {
   const modal = document.getElementById("deleteSessionModal");
   if (modal) modal.style.display = "none";
   pendingDeleteSession = null;
+}
+
+function openDriftModal(driftData) {
+  if (!isHeadOfSocUser() || !driftData) return;
+  const modal = document.getElementById("driftDetailModal");
+  if (!modal) return;
+
+  const alertBox = document.getElementById("driftModalAlertBox");
+  const title = document.getElementById("driftModalTitle");
+  const msg = document.getElementById("driftModalMessage");
+  const badge = document.getElementById("driftModalScoreBadge");
+  const l1Score = document.getElementById("driftModalL1Score");
+  const l2Score = document.getElementById("driftModalL2Score");
+  const refPop = document.getElementById("driftModalRefPop");
+  const l1Tbody = document.getElementById("driftModalL1TableBody");
+  const l2Tbody = document.getElementById("driftModalL2TableBody");
+
+  const isSig = driftData.drift_status === "SIGNIFICANT" || driftData.recommendation_alert;
+  if (alertBox) {
+    alertBox.style.background = isSig ? "rgba(255, 77, 77, 0.12)" : (driftData.drift_status === "MODERATE" ? "rgba(255, 171, 0, 0.12)" : "rgba(0, 230, 118, 0.12)");
+    alertBox.style.borderLeft = isSig ? "4px solid var(--accent-red)" : (driftData.drift_status === "MODERATE" ? "4px solid var(--accent-amber)" : "4px solid var(--accent-green)");
+  }
+  if (title) {
+    title.innerText = isSig ? "⚠️ Significant Drift: Training Dataset Update Recommended" : (driftData.drift_status === "MODERATE" ? "⚡ Moderate Drift Detected" : "✅ Low Drift: Operational Parameters Normal");
+    title.style.color = isSig ? "var(--accent-red)" : (driftData.drift_status === "MODERATE" ? "var(--accent-amber)" : "var(--accent-green)");
+  }
+  if (msg) msg.innerText = driftData.recommendation_message || "";
+  if (badge) {
+    badge.className = isSig ? "badge badge-danger" : (driftData.drift_status === "MODERATE" ? "badge badge-warning" : "badge badge-normal");
+    badge.innerText = `OVERALL DRIFT: ${driftData.overall_drift_percentage}% (${driftData.drift_status})`;
+  }
+
+  const l1 = driftData.layer1_network_features;
+  const l2 = driftData.layer2_event_profiles;
+
+  if (l1Score) l1Score.innerText = l1 ? `${(l1.score * 100).toFixed(1)}%` : "N/A (Omitted)";
+  if (l2Score) l2Score.innerText = l2 ? `${(l2.score * 100).toFixed(1)}%` : "N/A (Omitted)";
+  if (refPop) refPop.innerText = `Exp B (${(driftData.reference_population || "full").toUpperCase()})`;
+
+  // Layer 1 table
+  if (l1Tbody) {
+    if (l1 && l1.features && Object.keys(l1.features).length > 0) {
+      l1Tbody.innerHTML = Object.entries(l1.features).map(([featName, f]) => `
+        <tr>
+          <td><strong style="color:var(--accent-cyan); font-family:var(--font-mono);">${featName}</strong></td>
+          <td>${Number(f.actual_mean).toLocaleString(undefined, {maximumFractionDigits: 2})}</td>
+          <td>${Number(f.reference_mean).toLocaleString(undefined, {maximumFractionDigits: 2})}</td>
+          <td>${f.ks_statistic} <span style="font-size:10px; color:var(--text-muted);">(p=${f.ks_pvalue})</span></td>
+          <td>${f.psi} <span style="font-size:10px; color:var(--text-muted);">(${f.psi_score})</span></td>
+          <td>${f.wasserstein_raw} <span style="font-size:10px; color:var(--text-muted);">(norm: ${f.wasserstein_normalized})</span></td>
+          <td><strong style="color:${f.feature_drift_score >= 0.5 ? 'var(--accent-red)' : (f.feature_drift_score >= 0.25 ? 'var(--accent-amber)' : 'var(--accent-green)')};">${(f.feature_drift_score * 100).toFixed(1)}%</strong></td>
+        </tr>
+      `).join("");
+    } else {
+      l1Tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">${driftData.is_partial ? 'Layer 1 omitted (Preaggregated profile input)' : 'No Layer 1 features evaluated.'}</td></tr>`;
+    }
+  }
+
+  // Layer 2 table
+  if (l2Tbody) {
+    if (l2 && l2.basepoints && Object.keys(l2.basepoints).length > 0) {
+      l2Tbody.innerHTML = Object.entries(l2.basepoints).map(([bpName, bp]) => `
+        <tr>
+          <td><strong style="color:var(--accent-purple); font-family:var(--font-mono);">${bpName}</strong></td>
+          <td>${Number(bp.actual_mean).toFixed(4)}</td>
+          <td>${Number(bp.reference_mean).toFixed(4)}</td>
+          <td>${bp.ks_statistic}</td>
+          <td>${bp.psi}</td>
+          <td>${Number(bp.wasserstein_raw).toFixed(4)}</td>
+          <td><strong style="color:${bp.dimension_drift_score >= 0.5 ? 'var(--accent-red)' : (bp.dimension_drift_score >= 0.25 ? 'var(--accent-amber)' : 'var(--accent-green)')};">${(bp.dimension_drift_score * 100).toFixed(1)}%</strong></td>
+        </tr>
+      `).join("");
+    } else {
+      l2Tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No Layer 2 profile metrics evaluated.</td></tr>`;
+    }
+  }
+
+  // Dominant basepoints
+  const jsdEl = document.getElementById("driftModalJSD");
+  const jsDistEl = document.getElementById("driftModalJSDist");
+  const barsContainer = document.getElementById("driftModalDominantBars");
+  if (jsdEl) jsdEl.innerText = l2?.js_divergence !== undefined ? l2.js_divergence : "-";
+  if (jsDistEl) jsDistEl.innerText = l2?.js_distance !== undefined ? `${(l2.js_distance * 100).toFixed(1)}%` : "-";
+
+  if (barsContainer) {
+    if (l2 && l2.dominant_basepoint_distribution_actual) {
+      const act = l2.dominant_basepoint_distribution_actual || {};
+      const ref = l2.dominant_basepoint_distribution_reference || {};
+      barsContainer.innerHTML = Array.from({length: 8}, (_, i) => {
+        const k = `bp_0${i + 1}`;
+        const pAct = ((act[k] || 0) * 100).toFixed(1);
+        const pRef = ((ref[k] || 0) * 100).toFixed(1);
+        return `
+          <div style="background:var(--bg-card); padding:8px; border-radius:4px; border:1px solid var(--border-color);">
+            <div style="font-weight:700; color:var(--accent-cyan); font-family:var(--font-mono);">${k}</div>
+            <div style="font-size:11px; margin-top:3px;">Actual: <strong>${pAct}%</strong></div>
+            <div style="font-size:11px; color:var(--text-muted);">Ref: ${pRef}%</div>
+          </div>
+        `;
+      }).join("");
+    } else {
+      barsContainer.innerHTML = `<div style="grid-column:1/-1; color:var(--text-muted); font-size:12px;">No categorical dominant basepoint data available.</div>`;
+    }
+  }
+
+  modal.style.display = "flex";
+}
+
+function closeDriftModal() {
+  const modal = document.getElementById("driftDetailModal");
+  if (modal) modal.style.display = "none";
+}
+
+export async function loadDriftPageView() {
+  if (!isHeadOfSocUser()) {
+    switchView("view-dashboard");
+    return;
+  }
+  const [latestRes, historyRes] = await Promise.all([
+    api.fetchLatestDrift().catch(() => null),
+    api.fetchDriftHistory(20).catch(() => [])
+  ]);
+
+  const report = (latestRes && latestRes.has_drift) ? latestRes.report : null;
+
+  // Render Top Banner & Status
+  const alertBanner = document.getElementById("driftPageAlertBanner");
+  const alertTitle = document.getElementById("driftPageAlertTitle");
+  const alertText = document.getElementById("driftPageAlertText");
+  const targetMeta = document.getElementById("driftPageTargetMeta");
+  const badgeOverall = document.getElementById("driftPageOverallBadge");
+
+  const elOverall = document.getElementById("driftPageOverallScore");
+  const elOverallStatus = document.getElementById("driftPageOverallStatus");
+  const elL1 = document.getElementById("driftPageL1Score");
+  const elL1Sub = document.getElementById("driftPageL1Sub");
+  const elL2 = document.getElementById("driftPageL2Score");
+  const elL2Sub = document.getElementById("driftPageL2Sub");
+  const elRefPop = document.getElementById("driftPageRefPop");
+  const elRefMeta = document.getElementById("driftPageRefMeta");
+  const elSess = document.getElementById("driftPageSessionId");
+  const elTs = document.getElementById("driftPageTimestamp");
+
+  if (report) {
+    const isSig = report.drift_status === "SIGNIFICANT" || report.recommendation_alert;
+    const isMod = report.drift_status === "MODERATE";
+
+    if (alertBanner) {
+      alertBanner.style.borderLeft = isSig ? "4px solid var(--accent-red)" : (isMod ? "4px solid var(--accent-amber)" : "4px solid var(--accent-green)");
+      alertBanner.style.background = isSig ? "rgba(255, 77, 77, 0.08)" : (isMod ? "rgba(255, 171, 0, 0.08)" : "rgba(0, 230, 118, 0.08)");
+    }
+    if (alertTitle) {
+      alertTitle.style.color = isSig ? "var(--accent-red)" : (isMod ? "var(--accent-amber)" : "var(--accent-green)");
+      alertTitle.innerText = isSig ? "Training Dataset Update Recommended" : (isMod ? "Moderate Distribution Drift Detected" : "Baseline Distribution Stable");
+    }
+    if (alertText) {
+      alertText.innerText = report.recommendation_message || "Distribution drift evaluated between baseline training and ingested traffic.";
+    }
+    if (targetMeta) {
+      targetMeta.innerText = `Evaluated Target Session: ${report.session_id || "N/A"} • Upload: ${report.upload_id || "N/A"} • Recorded: ${report.timestamp || "N/A"}`;
+    }
+    if (badgeOverall) {
+      badgeOverall.className = isSig ? "badge badge-danger" : (isMod ? "badge badge-warning" : "badge badge-normal");
+      badgeOverall.innerText = `DRIFT: ${report.overall_drift_percentage}% (${report.drift_status})`;
+    }
+
+    if (elOverall) {
+      elOverall.innerText = `${report.overall_drift_percentage}%`;
+      elOverall.style.color = isSig ? "var(--accent-red)" : (isMod ? "var(--accent-amber)" : "var(--accent-green)");
+    }
+    if (elOverallStatus) elOverallStatus.innerText = `Status: ${report.drift_status}`;
+
+    if (elL1) {
+      if (report.layer1_network_features && report.layer1_network_features.score !== null && report.layer1_network_features.score !== undefined) {
+        elL1.innerText = `${(report.layer1_network_features.score * 100).toFixed(1)}%`;
+        elL1.style.color = "var(--accent-cyan)";
+      } else {
+        elL1.innerText = "N/A";
+        elL1.style.color = "var(--text-muted)";
+      }
+    }
+    if (elL1Sub) {
+      elL1Sub.innerText = report.is_partial ? "Omitted (Profile-only input)" : "4 continuous features";
+    }
+
+    if (elL2) {
+      if (report.layer2_event_profiles && report.layer2_event_profiles.score !== null && report.layer2_event_profiles.score !== undefined) {
+        elL2.innerText = `${(report.layer2_event_profiles.score * 100).toFixed(1)}%`;
+        elL2.style.color = "var(--accent-purple)";
+      } else {
+        elL2.innerText = "N/A";
+        elL2.style.color = "var(--text-muted)";
+      }
+    }
+    if (elL2Sub) {
+      elL2Sub.innerText = "8 basepoint dimensions";
+    }
+
+    if (elRefPop) elRefPop.innerText = `Exp B (${(report.reference_population || "full").toUpperCase()})`;
+    if (elRefMeta) elRefMeta.innerText = `Baseline: ${report.reference_experiment || "exp_b"}`;
+
+    if (elSess) elSess.innerText = report.session_id || "-";
+    if (elTs) elTs.innerText = report.timestamp || "-";
+
+    renderDriftPageTables(report);
+  } else {
+    if (elOverall) elOverall.innerText = "N/A";
+    if (elOverallStatus) elOverallStatus.innerText = "No drift evaluated yet";
+    if (elL1) elL1.innerText = "N/A";
+    if (elL2) elL2.innerText = "N/A";
+    if (alertText) alertText.innerText = "No data drift reports currently recorded. Upload a network traffic CSV or event profiles to calculate data drift.";
+  }
+
+  // Render Drift History Table
+  renderDriftHistoryTable(historyRes || []);
+}
+
+function renderDriftPageTables(driftData) {
+  const l1Tbody = document.getElementById("driftPageL1TableBody");
+  const l2Tbody = document.getElementById("driftPageL2TableBody");
+  const l1 = driftData.layer1_network_features;
+  const l2 = driftData.layer2_event_profiles;
+
+  // Layer 1 table
+  if (l1Tbody) {
+    if (l1 && l1.features && Object.keys(l1.features).length > 0) {
+      l1Tbody.innerHTML = Object.entries(l1.features).map(([featName, f]) => `
+        <tr>
+          <td><strong style="color:var(--accent-cyan); font-family:var(--font-mono);">${featName}</strong></td>
+          <td>${Number(f.actual_mean).toLocaleString(undefined, {maximumFractionDigits: 2})}</td>
+          <td>${Number(f.reference_mean).toLocaleString(undefined, {maximumFractionDigits: 2})}</td>
+          <td>${f.psi} <span style="font-size:10px; color:var(--text-muted);">(${f.psi_score})</span></td>
+          <td>${f.ks_statistic} <span style="font-size:10px; color:var(--text-muted);">(p=${f.ks_pvalue})</span></td>
+          <td>${f.wasserstein_raw} <span style="font-size:10px; color:var(--text-muted);">(norm: ${f.wasserstein_normalized})</span></td>
+          <td><strong style="color:${f.feature_drift_score >= 0.5 ? 'var(--accent-red)' : (f.feature_drift_score >= 0.25 ? 'var(--accent-amber)' : 'var(--accent-green)')};">${(f.feature_drift_score * 100).toFixed(1)}%</strong></td>
+        </tr>
+      `).join("");
+    } else {
+      l1Tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">${driftData.is_partial ? 'Layer 1 omitted (Preaggregated profile input)' : 'No Layer 1 features evaluated.'}</td></tr>`;
+    }
+  }
+
+  // Layer 2 table
+  if (l2Tbody) {
+    if (l2 && l2.basepoints && Object.keys(l2.basepoints).length > 0) {
+      l2Tbody.innerHTML = Object.entries(l2.basepoints).map(([bpName, bp]) => `
+        <tr>
+          <td><strong style="color:var(--accent-purple); font-family:var(--font-mono);">${bpName}</strong></td>
+          <td>${Number(bp.actual_mean).toFixed(4)}</td>
+          <td>${Number(bp.reference_mean).toFixed(4)}</td>
+          <td>${bp.psi}</td>
+          <td>${bp.ks_statistic} <span style="font-size:10px; color:var(--text-muted);">(p=${bp.ks_pvalue})</span></td>
+          <td>${Number(bp.wasserstein_raw).toFixed(4)} <span style="font-size:10px; color:var(--text-muted);">(norm: ${bp.wasserstein_normalized})</span></td>
+          <td><strong style="color:${bp.dimension_drift_score >= 0.5 ? 'var(--accent-red)' : (bp.dimension_drift_score >= 0.25 ? 'var(--accent-amber)' : 'var(--accent-green)')};">${(bp.dimension_drift_score * 100).toFixed(1)}%</strong></td>
+        </tr>
+      `).join("");
+    } else {
+      l2Tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No Layer 2 profile metrics evaluated.</td></tr>`;
+    }
+  }
+
+  // Dominant basepoints
+  const jsdEl = document.getElementById("driftPageJSD");
+  const jsDistEl = document.getElementById("driftPageJSDist");
+  const barsContainer = document.getElementById("driftPageDominantBars");
+  if (jsdEl) jsdEl.innerText = l2?.js_divergence !== undefined ? l2.js_divergence : "-";
+  if (jsDistEl) jsDistEl.innerText = l2?.js_distance !== undefined ? `${(l2.js_distance * 100).toFixed(1)}%` : "-";
+
+  if (barsContainer) {
+    if (l2 && l2.dominant_basepoint_distribution_actual) {
+      const act = l2.dominant_basepoint_distribution_actual || {};
+      const ref = l2.dominant_basepoint_distribution_reference || {};
+      barsContainer.innerHTML = Array.from({length: 8}, (_, i) => {
+        const k = `bp_0${i + 1}`;
+        const pAct = ((act[k] || 0) * 100).toFixed(1);
+        const pRef = ((ref[k] || 0) * 100).toFixed(1);
+        return `
+          <div style="background:var(--bg-card); padding:8px; border-radius:4px; border:1px solid var(--border-color);">
+            <div style="font-weight:700; color:var(--accent-cyan); font-family:var(--font-mono);">${k}</div>
+            <div style="font-size:11px; margin-top:3px;">Actual: <strong>${pAct}%</strong></div>
+            <div style="font-size:11px; color:var(--text-muted);">Ref: ${pRef}%</div>
+          </div>
+        `;
+      }).join("");
+    } else {
+      barsContainer.innerHTML = `<div style="grid-column:1/-1; color:var(--text-muted); font-size:12px;">No categorical dominant basepoint data available.</div>`;
+    }
+  }
+}
+
+function renderDriftHistoryTable(historyList) {
+  const tbody = document.getElementById("driftPageHistoryTableBody");
+  const badge = document.getElementById("driftPageHistoryBadge");
+  if (badge) badge.innerText = `${(historyList || []).length} Evaluations`;
+  if (!tbody) return;
+
+  if (!historyList || historyList.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 16px;">No drift evaluation history recorded yet.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = historyList.map(item => {
+    const isSig = item.drift_status === "SIGNIFICANT" || item.recommendation_alert;
+    const isMod = item.drift_status === "MODERATE";
+    const statusBadge = isSig ? "badge-danger" : (isMod ? "badge-warning" : "badge-normal");
+    const l1Display = (item.layer1_score !== null && item.layer1_score !== undefined) ? `${(item.layer1_score * 100).toFixed(1)}%` : (item.is_partial ? "Omitted" : "-");
+    const l2Display = (item.layer2_score !== null && item.layer2_score !== undefined) ? `${(item.layer2_score * 100).toFixed(1)}%` : "-";
+
+    return `
+      <tr>
+        <td style="font-size: 11.5px; font-family: var(--font-mono);">${escapeHtml(item.timestamp || "-")}</td>
+        <td style="font-family: var(--font-mono); font-size: 11.5px;"><code>${escapeHtml(item.session_id || "-")}</code></td>
+        <td style="font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted);">${escapeHtml(item.upload_id || "-")}</td>
+        <td><strong style="color: ${isSig ? 'var(--accent-red)' : (isMod ? 'var(--accent-amber)' : 'var(--accent-green)')}; font-family: var(--font-mono);">${item.overall_drift_percentage}%</strong></td>
+        <td>${l1Display}</td>
+        <td>${l2Display}</td>
+        <td><span class="badge ${statusBadge}">${escapeHtml(item.drift_status || "LOW")}</span></td>
+        <td>
+          <button class="btn btn-secondary btn-inspect-drift" data-session-id="${escapeHtml(item.session_id)}" style="padding: 3px 8px; font-size: 11px;">Inspect Details</button>
+        </td>
+      </tr>
+    `;
+  }).join("");
+
+  tbody.querySelectorAll(".btn-inspect-drift").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const sid = btn.getAttribute("data-session-id");
+      if (sid) {
+        api.fetchSessionDrift(sid).then(rep => {
+          if (rep && !rep.detail) {
+            openDriftModal(rep);
+          } else {
+            alert("No drift report details available for session: " + sid);
+          }
+        });
+      }
+    });
+  });
 }
 
 async function confirmDeleteSession() {
@@ -1356,6 +2264,43 @@ function initHistoryControls() {
   document.getElementById("deleteSessionModal")?.addEventListener("click", (e) => {
     if (e.target && e.target.id === "deleteSessionModal") {
       closeDeleteModal();
+    }
+  });
+
+  // Dual-Layer Data Drift Modal Controls
+  document.getElementById("btnViewDriftDetails")?.addEventListener("click", () => {
+    if (currentActiveDriftReport) {
+      openDriftModal(currentActiveDriftReport);
+    } else {
+      api.fetchLatestDrift().then(res => {
+        if (res && res.has_drift && res.report) {
+          openDriftModal(res.report);
+        } else {
+          alert("No data drift report currently recorded. Upload a CSV to calculate data drift.");
+        }
+      });
+    }
+  });
+
+  document.getElementById("repMetricDriftCard")?.addEventListener("click", () => {
+    if (currentReportDriftData) {
+      openDriftModal(currentReportDriftData);
+    } else if (activeSessionReport && activeSessionReport.session_id) {
+      api.fetchSessionDrift(activeSessionReport.session_id).then(rep => {
+        if (rep && !rep.detail) {
+          openDriftModal(rep);
+        } else {
+          alert("No drift report recorded for this historical session.");
+        }
+      });
+    }
+  });
+
+  document.getElementById("btnCloseDriftModal")?.addEventListener("click", closeDriftModal);
+  document.getElementById("btnCloseDriftModalBtn")?.addEventListener("click", closeDriftModal);
+  document.getElementById("driftDetailModal")?.addEventListener("click", (e) => {
+    if (e.target && e.target.id === "driftDetailModal") {
+      closeDriftModal();
     }
   });
 }
@@ -1682,36 +2627,6 @@ function appendChatMessage(role, text, targetId, suggestions = [], onSuggestionC
   container.scrollTop = container.scrollHeight;
 }
 
-// -----------------------------------------------------------------------------
-// Soft-Voting Ensemble Tuning Controls
-// -----------------------------------------------------------------------------
-function initEnsembleControls() {
-  const w1Slider = document.getElementById("sliderWeightFcnn");
-  const w2Slider = document.getElementById("sliderWeightCnn");
-  const w3Slider = document.getElementById("sliderWeightLstm");
-  const threshSlider = document.getElementById("sliderThreshold");
-  const applyBtn = document.getElementById("btnApplyEnsemble");
-
-  const syncVals = () => {
-    if (w1Slider) document.getElementById("valWeightFcnn").innerText = w1Slider.value;
-    if (w2Slider) document.getElementById("valWeightCnn").innerText = w2Slider.value;
-    if (w3Slider) document.getElementById("valWeightLstm").innerText = w3Slider.value;
-    if (threshSlider) document.getElementById("valThreshold").innerText = threshSlider.value;
-  };
-
-  [w1Slider, w2Slider, w3Slider, threshSlider].forEach(s => s?.addEventListener("input", syncVals));
-
-  applyBtn?.addEventListener("click", async () => {
-    const weights = [
-      parseFloat(w1Slider.value),
-      parseFloat(w2Slider.value),
-      parseFloat(w3Slider.value)
-    ];
-    const threshold = parseFloat(threshSlider.value);
-    await api.updateEnsembleConfig(weights, threshold);
-    alert(`Ensemble parameters updated: Weights=[${weights.join(", ")}], Threshold=${threshold}`);
-  });
-}
 
 // -----------------------------------------------------------------------------
 // Dynamic Background Particle Network (Matches Login Page Cybersecurity Theme)
@@ -1895,4 +2810,455 @@ function initDashboardBackground() {
   }
 
   requestAnimationFrame(render);
+}
+
+
+// =============================================================================
+// Head of SOC: Candidate Model Studio & Dual Sub-Navigation Controller
+// =============================================================================
+
+function initDriftSubnav() {
+  const btnTelemetry = document.getElementById("btnSubnavDriftTelemetry");
+  const btnStudio = document.getElementById("btnSubnavTrainingStudio");
+  const telemetryCont = document.getElementById("driftTelemetryContainer");
+  const studioCont = document.getElementById("trainingStudioContainer");
+
+  if (btnTelemetry && btnStudio && telemetryCont && studioCont) {
+    btnTelemetry.addEventListener("click", () => {
+      telemetryCont.style.display = "block";
+      studioCont.style.display = "none";
+      btnTelemetry.className = "btn btn-primary";
+      btnStudio.className = "btn btn-secondary";
+      loadDriftPageView();
+    });
+
+    btnStudio.addEventListener("click", () => {
+      telemetryCont.style.display = "none";
+      studioCont.style.display = "block";
+      btnStudio.className = "btn btn-primary";
+      btnTelemetry.className = "btn btn-secondary";
+      loadTrainingStudioOverview();
+    });
+  }
+}
+
+let selectedTrainingFile = null;
+let lastValidationReport = null;
+let lastUploadedDataset = null;
+let lastTrainedCandidate = null;
+
+function updateTrainingSelectionState() {
+  const selectDatasetEl = document.getElementById("selectTargetCandidateDataset");
+  const targetLbl = document.getElementById("studioTargetDatasetLabel");
+  const btnTrain = document.getElementById("btnTrainCandidateModel");
+  const selectedId = selectDatasetEl ? selectDatasetEl.value : (lastUploadedDataset ? lastUploadedDataset.dataset_id : null);
+
+  if (!selectedId) {
+    if (targetLbl) {
+      targetLbl.innerText = "None Selected (Training Disabled)";
+      targetLbl.style.color = "var(--text-muted)";
+    }
+    if (btnTrain) btnTrain.disabled = true;
+  } else {
+    if (targetLbl) {
+      targetLbl.innerText = `Dataset Ready: ${selectedId}`;
+      targetLbl.style.color = "var(--accent-green)";
+    }
+    if (btnTrain) btnTrain.disabled = false;
+  }
+}
+
+async function loadTrainingStudioOverview() {
+  if (!isHeadOfSocUser()) return;
+  try {
+    const data = await api.fetchTrainingOverview();
+    if (!data) return;
+
+    const activeModelNameEl = document.getElementById("studioActiveModelName");
+    const backupCountEl = document.getElementById("studioBackupCount");
+    const badgeCandCount = document.getElementById("badgeCandidateCount");
+
+    if (activeModelNameEl) {
+      activeModelNameEl.innerText = data.active_model?.model_name || "Experiment B (Patator Baseline)";
+    }
+    if (backupCountEl) {
+      backupCountEl.innerText = `${(data.backups || []).length} Backups Available`;
+    }
+    if (badgeCandCount) {
+      badgeCandCount.innerText = `${(data.candidates || []).length} Models`;
+    }
+
+    // Populate Target Dataset Selector with persisted datasets
+    const selectDatasetEl = document.getElementById("selectTargetCandidateDataset");
+    if (selectDatasetEl) {
+      const currentVal = selectDatasetEl.value;
+      const opts = [`<option value="">-- No Validated Dataset Selected --</option>`];
+      (data.datasets || []).forEach(ds => {
+        const isSel = (lastUploadedDataset && lastUploadedDataset.dataset_id === ds.dataset_id) || (currentVal === ds.dataset_id);
+        opts.push(`<option value="${escapeHtml(ds.dataset_id)}" ${isSel ? 'selected' : ''}>${escapeHtml(ds.dataset_id)} — ${escapeHtml(ds.filename)} (${(ds.row_count || 0).toLocaleString()} rows)</option>`);
+      });
+      selectDatasetEl.innerHTML = opts.join("");
+      updateTrainingSelectionState();
+    }
+
+    renderCandidateHistoryTable(data.candidates || []);
+  } catch (err) {
+    console.error("Failed to load training studio overview:", err);
+  }
+}
+
+function renderCandidateHistoryTable(candidates) {
+  const tbody = document.getElementById("candidateHistoryTableBody");
+  if (!tbody) return;
+
+  if (!candidates || candidates.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 16px;">No candidate models trained yet.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = candidates.map(c => {
+    const metrics = c.metrics || {};
+    const isActive = c.status === "ACTIVE";
+    const statusBadge = isActive ? "badge-normal" : (c.status === "ROLLED_BACK" ? "badge-danger" : "badge-info");
+    const f1Str = metrics.f1_score !== undefined ? `${(metrics.f1_score * 100).toFixed(1)}%` : "-";
+    const precStr = metrics.precision !== undefined ? `${(metrics.precision * 100).toFixed(1)}%` : "-";
+    const recStr = metrics.recall !== undefined ? `${(metrics.recall * 100).toFixed(1)}%` : "-";
+
+    return `
+      <tr>
+        <td style="font-family: var(--font-mono); font-size: 11.5px; font-weight: 700; color: var(--accent-purple);">${escapeHtml(c.candidate_id)}</td>
+        <td style="font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);">${escapeHtml(c.dataset_id)}</td>
+        <td style="font-size: 11px;">${escapeHtml(c.created_at || "-")}</td>
+        <td><span class="badge ${statusBadge}">${escapeHtml(c.status)}</span></td>
+        <td><strong style="color: var(--accent-cyan); font-family: var(--font-mono);">${f1Str}</strong></td>
+        <td>${precStr}</td>
+        <td>${recStr}</td>
+        <td style="font-size: 11px; color: var(--text-muted);">${escapeHtml(c.approved_by || "-")}</td>
+        <td>
+          ${!isActive ? `<button class="btn btn-secondary btn-activate-table" data-id="${escapeHtml(c.candidate_id)}" style="padding: 2px 8px; font-size: 11px;">Activate</button>` : `<span style="font-size: 11px; color: var(--accent-green); font-weight: 600;">Currently Active</span>`}
+        </td>
+      </tr>
+    `;
+  }).join("");
+
+  tbody.querySelectorAll(".btn-activate-table").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const cid = btn.getAttribute("data-id");
+      if (cid) {
+        promptActivateCandidate(cid);
+      }
+    });
+  });
+}
+
+function initTrainingStudioControls() {
+  const dropZone = document.getElementById("datasetDropZone");
+  const fileInput = document.getElementById("inputTrainingDatasetFile");
+  const btnBrowse = document.getElementById("btnBrowseTrainingDataset");
+  const filenameEl = document.getElementById("selectedDatasetFilename");
+  const btnValidate = document.getElementById("btnValidateDataset");
+  const btnUpload = document.getElementById("btnUploadDataset");
+  const btnTrain = document.getElementById("btnTrainCandidateModel");
+  const btnActivate = document.getElementById("btnActivateCandidate");
+  const btnRollback = document.getElementById("btnStudioRollback");
+  const btnRefresh = document.getElementById("btnRefreshStudio");
+  const selectDatasetEl = document.getElementById("selectTargetCandidateDataset");
+
+  // Safeguards: Initial button states
+  if (btnUpload) btnUpload.disabled = true;
+  if (btnTrain) btnTrain.disabled = true;
+
+  if (selectDatasetEl) {
+    selectDatasetEl.addEventListener("change", () => {
+      updateTrainingSelectionState();
+    });
+  }
+
+  if (btnBrowse && fileInput) {
+    btnBrowse.addEventListener("click", () => fileInput.click());
+  }
+
+  function handleFileSelect(file) {
+    if (!file) return;
+    selectedTrainingFile = file;
+    lastValidationReport = null;
+    if (filenameEl) {
+      filenameEl.innerText = `Selected: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+      filenameEl.style.display = "block";
+      filenameEl.style.color = "var(--accent-cyan)";
+    }
+    const badge = document.getElementById("badgeStudioValidation");
+    if (badge) {
+      badge.className = "badge badge-info";
+      badge.innerText = "Awaiting Validation";
+    }
+    if (btnValidate) btnValidate.disabled = false;
+    // Safeguard 2: Persist Validated Dataset must be disabled until schema validation succeeds
+    if (btnUpload) btnUpload.disabled = true;
+  }
+
+  if (fileInput) {
+    fileInput.addEventListener("change", (e) => {
+      if (e.target.files && e.target.files[0]) {
+        handleFileSelect(e.target.files[0]);
+      }
+    });
+  }
+
+  if (dropZone) {
+    dropZone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      dropZone.style.borderColor = "var(--accent-cyan)";
+      dropZone.style.background = "rgba(0, 229, 255, 0.08)";
+    });
+    dropZone.addEventListener("dragleave", (e) => {
+      e.preventDefault();
+      dropZone.style.borderColor = "var(--border-color)";
+      dropZone.style.background = "transparent";
+    });
+    dropZone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropZone.style.borderColor = "var(--border-color)";
+      dropZone.style.background = "transparent";
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+        handleFileSelect(e.dataTransfer.files[0]);
+      }
+    });
+  }
+
+  // Validate Dataset
+  if (btnValidate) {
+    btnValidate.addEventListener("click", async () => {
+      if (!selectedTrainingFile) {
+        alert("Please select a training dataset CSV file first.");
+        return;
+      }
+      btnValidate.disabled = true;
+      btnValidate.innerText = "Validating...";
+      const badge = document.getElementById("badgeStudioValidation");
+      if (badge) {
+        badge.className = "badge badge-warning";
+        badge.innerText = "Validating...";
+      }
+
+      try {
+        const report = await api.validateCandidateDataset(selectedTrainingFile);
+        lastValidationReport = report;
+        renderValidationReport(report);
+
+        // Safeguard 2: Persist Validated Dataset must be disabled until schema validation succeeds
+        if (report.is_valid) {
+          if (btnUpload) btnUpload.disabled = false;
+        } else {
+          if (btnUpload) btnUpload.disabled = true;
+        }
+      } catch (err) {
+        alert("Validation error: " + err.message);
+        if (badge) {
+          badge.className = "badge badge-danger";
+          badge.innerText = "Validation Error";
+        }
+      } finally {
+        btnValidate.disabled = false;
+        btnValidate.innerText = "🔍 Validate Dataset Quality";
+      }
+    });
+  }
+
+  // Persist Validated Dataset
+  if (btnUpload) {
+    btnUpload.addEventListener("click", async () => {
+      if (!selectedTrainingFile || !lastValidationReport?.is_valid) {
+        alert("Action Denied: You must successfully validate the dataset schema and quality before persisting.");
+        return;
+      }
+      btnUpload.disabled = true;
+      btnUpload.innerText = "Persisting...";
+      try {
+        const res = await api.uploadCandidateDataset(selectedTrainingFile);
+        if (res.status === "SUCCESS") {
+          lastUploadedDataset = res.dataset;
+          const badge = document.getElementById("badgeStudioValidation");
+          if (badge) {
+            badge.className = "badge badge-normal";
+            badge.innerText = "Dataset Persisted";
+          }
+          alert(`Dataset successfully validated and persisted as ${res.dataset.dataset_id}.`);
+          await loadTrainingStudioOverview();
+          updateTrainingSelectionState();
+        } else {
+          alert("Persistence failed: " + (res.detail || "Unknown error"));
+        }
+      } catch (err) {
+        alert("Persistence error: " + err.message);
+      } finally {
+        btnUpload.disabled = false;
+        btnUpload.innerText = "💾 Persist Validated Dataset";
+      }
+    });
+  }
+
+  // Train Candidate Model
+  if (btnTrain) {
+    btnTrain.addEventListener("click", async () => {
+      // Safeguard 1 & 3: Train Candidate Model must be disabled when no validated dataset is selected
+      const targetDatasetId = (selectDatasetEl && selectDatasetEl.value) || (lastUploadedDataset && lastUploadedDataset.dataset_id);
+      if (!targetDatasetId) {
+        alert("Training Error: Train Candidate Model requires a successfully validated and persisted dataset.");
+        btnTrain.disabled = true;
+        return;
+      }
+      btnTrain.disabled = true;
+      const sp = document.getElementById("btnTrainSpinner");
+      const txt = document.getElementById("btnTrainText");
+      if (sp) sp.style.display = "inline";
+      if (txt) txt.innerText = "Training Neural Ensemble...";
+
+      try {
+        const res = await api.trainCandidateModel(targetDatasetId);
+        if (res.status === "SUCCESS") {
+          lastTrainedCandidate = res.candidate;
+          renderCandidateEvaluation(res.candidate);
+          await loadTrainingStudioOverview();
+        } else {
+          alert("Training failed: " + (res.detail || "Unknown error"));
+        }
+      } catch (err) {
+        alert("Training error: " + err.message);
+      } finally {
+        btnTrain.disabled = false;
+        if (sp) sp.style.display = "none";
+        if (txt) txt.innerText = "⚡ Train Candidate Model";
+      }
+    });
+  }
+
+  // Activate Candidate Model
+  if (btnActivate) {
+    btnActivate.addEventListener("click", () => {
+      if (!lastTrainedCandidate) {
+        alert("No candidate model has been trained yet in this session.");
+        return;
+      }
+      promptActivateCandidate(lastTrainedCandidate.candidate_id);
+    });
+  }
+
+  // Rollback Model
+  if (btnRollback) {
+    btnRollback.addEventListener("click", async () => {
+      const note = prompt("Enter supervisory rollback note for Head of SOC rollback authorization:", "Rollback to baseline Experiment B model");
+      if (note === null) return;
+      try {
+        const res = await api.rollbackCandidateModel(note);
+        if (res.status === "SUCCESS") {
+          alert(res.message);
+          await loadTrainingStudioOverview();
+        } else {
+          alert("Rollback failed: " + (res.detail || "Unknown error"));
+        }
+      } catch (err) {
+        alert("Rollback error: " + err.message);
+      }
+    });
+  }
+
+  // Refresh Overview
+  if (btnRefresh) {
+    btnRefresh.addEventListener("click", () => loadTrainingStudioOverview());
+  }
+}
+
+function promptActivateCandidate(candidateId) {
+  // Safeguard 4.1: Require explicit confirmation and supervisory justification before activation
+  const noteInput = document.getElementById("inputActivationNote");
+  const note = (noteInput && noteInput.value.trim()) || prompt("Enter Head of SOC activation authorization note:", "Candidate model approved following distribution shift verification");
+  if (note === null) return;
+
+  if (!confirm(`SUPERVISORY AUTHORIZATION CONFIRMATION:\n\nAre you sure you want to authorize and ACTIVATE candidate model '${candidateId}'?\n\n- The active production baseline will be backed up automatically.\n- An immutable supervisory audit record will be logged.\n- Rollback capability is 100% guaranteed.`)) {
+    return;
+  }
+
+  api.activateCandidateModel(candidateId, note)
+    .then(res => {
+      if (res.status === "SUCCESS") {
+        alert(`Candidate model '${candidateId}' is now ACTIVE in production!\nVerified Backup ID: ${res.backup_id || 'BKP-CURRENT'}`);
+        loadTrainingStudioOverview();
+      } else {
+        alert("Activation failed: " + (res.detail || "Unknown error"));
+      }
+    })
+    .catch(err => alert("Activation error: " + err.message));
+}
+
+function renderValidationReport(rep) {
+  const box = document.getElementById("datasetValidationReportBox");
+  const content = document.getElementById("validationReportContent");
+  const badge = document.getElementById("badgeStudioValidation");
+  if (!box || !content) return;
+
+  box.style.display = "block";
+  if (badge) {
+    badge.className = rep.is_valid ? "badge badge-normal" : "badge badge-danger";
+    badge.innerText = rep.is_valid ? "SCHEMA VALID" : "VALIDATION FAILED";
+  }
+
+  const issuesHtml = (rep.issues || []).map(iss => `<li style="color: var(--accent-red); margin-bottom: 3px;">❌ ${escapeHtml(iss)}</li>`).join("");
+  const warningsHtml = (rep.warnings || []).map(w => `<li style="color: var(--accent-amber); margin-bottom: 3px;">⚠️ ${escapeHtml(w)}</li>`).join("");
+
+  const rejectedCount = rep.rejected_rows ? rep.rejected_rows.count : 0;
+  const rejectedHtml = rejectedCount > 0
+    ? `<div style="margin-top: 6px; padding: 6px 10px; background: rgba(255, 77, 77, 0.1); border-left: 3px solid var(--accent-red); border-radius: 4px; font-size: 11.5px; color: var(--accent-red);">
+        <strong>Rejected Rows: ${rejectedCount}</strong> ${rep.rejected_rows.reasons?.length ? `(${escapeHtml(rep.rejected_rows.reasons[0])})` : ''}
+       </div>`
+    : `<div style="margin-top: 6px; font-size: 11.5px; color: var(--text-muted);">Rejected Rows: <strong>0 (Clean Dataset)</strong></div>`;
+
+  const imbRatio = rep.class_distribution?.imbalance_ratio ? ` (Ratio: ${rep.class_distribution.imbalance_ratio}:1)` : "";
+
+  content.innerHTML = `
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-bottom: 10px;">
+      <div><span style="color: var(--text-muted); font-size: 11px;">Validation Status:</span> <strong style="color: ${rep.is_valid ? 'var(--accent-green)' : 'var(--accent-red)'};">${escapeHtml(rep.validation_status || (rep.is_valid ? 'READY' : 'FAILED'))}</strong></div>
+      <div><span style="color: var(--text-muted); font-size: 11px;">Schema Type:</span> <strong style="color: var(--accent-cyan);">${escapeHtml(rep.schema_type || "Unknown")}</strong></div>
+      <div><span style="color: var(--text-muted); font-size: 11px;">Total Samples:</span> <strong>${(rep.num_rows || 0).toLocaleString()} rows</strong></div>
+      <div><span style="color: var(--text-muted); font-size: 11px;">Model Features:</span> <strong>${rep.feature_count || rep.num_cols || 0} features</strong></div>
+      <div style="grid-column: 1 / -1;"><span style="color: var(--text-muted); font-size: 11px;">Class Distribution:</span> <strong>${rep.class_balance?.BENIGN ?? 0} Benign / ${rep.class_balance?.ATTACK ?? 0} Attack${imbRatio}</strong></div>
+    </div>
+    ${rejectedHtml}
+    ${issuesHtml ? `<ul style="margin: 8px 0 6px 18px; font-size: 11.5px;">${issuesHtml}</ul>` : ""}
+    ${warningsHtml ? `<ul style="margin: 4px 0 6px 18px; font-size: 11.5px;">${warningsHtml}</ul>` : ""}
+    ${rep.is_valid ? `<div style="font-size: 12px; color: var(--accent-green); font-weight: 600; margin-top: 6px;">✓ Dataset passed schema verification, label integrity, and value distribution checks. Ready to persist.</div>` : `<div style="font-size: 12px; color: var(--accent-red); font-weight: 600; margin-top: 6px;">✕ Dataset rejected. Persist Validated Dataset and Model Training remain disabled.</div>`}
+  `;
+}
+
+function renderCandidateEvaluation(candidate) {
+  const card = document.getElementById("cardCandidateEvaluation");
+  if (!card) return;
+  card.style.display = "block";
+
+  const metrics = candidate.metrics || {};
+  const cm = metrics.confusion_matrix || {};
+
+  const pEl = document.getElementById("valCandPrecision");
+  const rEl = document.getElementById("valCandRecall");
+  const fEl = document.getElementById("valCandF1");
+  const prEl = document.getElementById("valCandPrAuc");
+  const rocEl = document.getElementById("valCandRocAuc");
+  const fprEl = document.getElementById("valCandFpr");
+
+  if (pEl) pEl.innerText = `${((metrics.precision ?? 0) * 100).toFixed(1)}%`;
+  if (rEl) rEl.innerText = `${((metrics.recall ?? 0) * 100).toFixed(1)}%`;
+  if (fEl) fEl.innerText = `${((metrics.f1_score ?? 0) * 100).toFixed(1)}%`;
+  if (prEl) prEl.innerText = `${((metrics.pr_auc ?? 0) * 100).toFixed(1)}%`;
+  if (rocEl) rocEl.innerText = `${((metrics.roc_auc ?? 0) * 100).toFixed(1)}%`;
+  if (fprEl) fprEl.innerText = `${((metrics.false_positive_rate ?? 0) * 100).toFixed(2)}%`;
+
+  const tnEl = document.getElementById("cmTN");
+  const fpEl = document.getElementById("cmFP");
+  const fnEl = document.getElementById("cmFN");
+  const tpEl = document.getElementById("cmTP");
+
+  if (tnEl) tnEl.innerText = (cm.true_negatives ?? 0).toLocaleString();
+  if (fpEl) fpEl.innerText = (cm.false_positives ?? 0).toLocaleString();
+  if (fnEl) fnEl.innerText = (cm.false_negatives ?? 0).toLocaleString();
+  if (tpEl) tpEl.innerText = (cm.true_positives ?? 0).toLocaleString();
 }

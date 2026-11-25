@@ -125,3 +125,33 @@ class BatchPredictionResponse(BaseModel):
     sample_results: List[BatchPredictionItem] = []
     dominant_attack_types: Dict[str, int] = {}
     attack_categories: Dict[str, int] = {}
+
+
+# =====================================================================
+# Chunked Upload & Resumable Processing Schemas
+# =====================================================================
+
+class UploadInitRequest(BaseModel):
+    filename: str
+    file_size: int
+    file_hash: str
+    total_chunks: int
+
+
+class UploadFinalizeRequest(BaseModel):
+    upload_id: str
+    file_hash: str
+
+
+class ProcessStartRequest(BaseModel):
+    upload_id: str
+    batch_size: int = 20000
+    sync: bool = False
+
+
+class ProcessResumeRequest(BaseModel):
+    upload_id: str
+    file_hash: Optional[str] = None
+    batch_size: int = 20000
+    sync: bool = False
+

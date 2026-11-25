@@ -138,6 +138,87 @@ def init_db():
             );
             """)
 
+            # Resumable Chunked Upload & Processing Infrastructure
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS upload_sessions (
+                upload_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL UNIQUE,
+                filename TEXT NOT NULL,
+                file_size INTEGER NOT NULL,
+                file_hash TEXT NOT NULL,
+                total_chunks INTEGER NOT NULL,
+                uploaded_chunks_count INTEGER DEFAULT 0,
+                upload_status TEXT NOT NULL DEFAULT 'UPLOADING',
+                sort_status TEXT NOT NULL DEFAULT 'PENDING',
+                processing_status TEXT NOT NULL DEFAULT 'PENDING',
+                total_rows INTEGER DEFAULT 0,
+                processed_rows INTEGER DEFAULT 0,
+                total_batches INTEGER DEFAULT 0,
+                completed_batches INTEGER DEFAULT 0,
+                global_t0 TEXT DEFAULT '',
+                last_finalized_k INTEGER DEFAULT -1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                error_message TEXT DEFAULT ''
+            );
+            """)
+
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS upload_chunks (
+                upload_id TEXT NOT NULL,
+                chunk_index INTEGER NOT NULL,
+                chunk_size INTEGER NOT NULL,
+                received_at TEXT NOT NULL,
+                PRIMARY KEY (upload_id, chunk_index),
+                FOREIGN KEY(upload_id) REFERENCES upload_sessions(upload_id) ON DELETE CASCADE
+            );
+            """)
+
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS batch_checkpoints (
+                upload_id TEXT NOT NULL,
+                batch_index INTEGER NOT NULL,
+                row_start INTEGER NOT NULL,
+                row_end INTEGER NOT NULL,
+                n_flows INTEGER NOT NULL,
+                n_event_sets INTEGER NOT NULL,
+                last_finalized_k INTEGER NOT NULL,
+                boundary_state TEXT DEFAULT '',
+                metrics_snapshot TEXT DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'COMPLETED',
+                checkpoint_time TEXT NOT NULL,
+                PRIMARY KEY (upload_id, batch_index),
+                FOREIGN KEY(upload_id) REFERENCES upload_sessions(upload_id) ON DELETE CASCADE
+            );
+            """)
+
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS batch_intermediate_detections (
+                id TEXT PRIMARY KEY,
+                upload_id TEXT NOT NULL,
+                batch_index INTEGER NOT NULL,
+                detection_json TEXT NOT NULL,
+                FOREIGN KEY(upload_id) REFERENCES upload_sessions(upload_id) ON DELETE CASCADE
+            );
+            """)
+
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS batch_pending_alert_windows (
+                event_set_id TEXT NOT NULL,
+                upload_id TEXT NOT NULL,
+                batch_index INTEGER NOT NULL,
+                window_json TEXT NOT NULL,
+                flow_indices_json TEXT NOT NULL,
+                PRIMARY KEY (upload_id, event_set_id),
+                FOREIGN KEY(upload_id) REFERENCES upload_sessions(upload_id) ON DELETE CASCADE
+            );
+            """)
+
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_upload_chunks_uid ON upload_chunks(upload_id);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_batch_checkpoints_uid ON batch_checkpoints(upload_id);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_batch_intermediate_uid ON batch_intermediate_detections(upload_id);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_batch_pending_alert_uid ON batch_pending_alert_windows(upload_id);")
+
             conn.execute("CREATE INDEX IF NOT EXISTS idx_detections_timestamp ON detections(timestamp);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_detections_verdict ON detections(verdict);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_detections_severity ON detections(severity);")
@@ -175,6 +256,102 @@ def init_db():
 
             conn.execute("CREATE INDEX IF NOT EXISTS idx_detections_status ON detections(prediction_status);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_detections_campaign ON detections(campaign_id);")
+
+            # Dual-Layer Data Drift Reports Table
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS drift_reports (
+                id TEXT PRIMARY KEY,
+                session_id TEXT,
+                upload_id TEXT,
+                timestamp TEXT NOT NULL,
+                reference_experiment TEXT NOT NULL DEFAULT 'exp_b',
+                reference_population TEXT NOT NULL DEFAULT 'full',
+                overall_drift_score REAL NOT NULL,
+                overall_drift_percentage REAL NOT NULL,
+                drift_status TEXT NOT NULL,
+                recommendation_alert INTEGER NOT NULL DEFAULT 0,
+                recommendation_message TEXT NOT NULL,
+                is_partial INTEGER NOT NULL DEFAULT 0,
+                omitted_layer TEXT DEFAULT '',
+                layer1_score REAL,
+                layer2_score REAL,
+                report_json TEXT NOT NULL,
+                FOREIGN KEY(session_id) REFERENCES analysis_sessions(session_id)
+            );
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_drift_reports_session ON drift_reports(session_id);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_drift_reports_timestamp ON drift_reports(timestamp);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_drift_reports_status ON drift_reports(drift_status);")
+
+            # Candidate Datasets Table (Head of SOC Training Studio)
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS candidate_datasets (
+                dataset_id TEXT PRIMARY KEY,
+                filename TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                row_count INTEGER NOT NULL,
+                dataset_type TEXT NOT NULL,
+                uploaded_by TEXT NOT NULL,
+                uploaded_at TEXT NOT NULL,
+                validation_report_json TEXT NOT NULL
+            );
+            """)
+
+            # Candidate Models Table (Isolated Experiments)
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS candidate_models (
+                candidate_id TEXT PRIMARY KEY,
+                dataset_id TEXT NOT NULL,
+                model_name TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'TRAINED',
+                created_at TEXT NOT NULL,
+                created_by TEXT NOT NULL,
+                metrics_json TEXT NOT NULL,
+                artifact_path TEXT NOT NULL,
+                approved_by TEXT DEFAULT '',
+                approved_at TEXT DEFAULT '',
+                approval_note TEXT DEFAULT ''
+            );
+            """)
+
+            # Model Backups & Rollback Table
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS model_backups (
+                backup_id TEXT PRIMARY KEY,
+                timestamp TEXT NOT NULL,
+                previous_model_type TEXT NOT NULL,
+                previous_candidate_id TEXT,
+                backup_path TEXT NOT NULL,
+                created_by TEXT NOT NULL
+            );
+            """)
+
+            # Model Activation Audit Trail
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS model_activation_audit (
+                activation_id TEXT PRIMARY KEY,
+                candidate_id TEXT NOT NULL,
+                dataset_id TEXT DEFAULT '',
+                action TEXT NOT NULL,
+                approved_by TEXT NOT NULL,
+                approval_note TEXT DEFAULT '',
+                timestamp TEXT NOT NULL,
+                backup_id TEXT DEFAULT '',
+                metrics_json TEXT DEFAULT '',
+                activation_result TEXT DEFAULT 'SUCCESS'
+            );
+            """)
+            for col_name, col_type in [
+                ("dataset_id", "TEXT DEFAULT ''"),
+                ("metrics_json", "TEXT DEFAULT ''"),
+                ("activation_result", "TEXT DEFAULT 'SUCCESS'")
+            ]:
+                try:
+                    conn.execute(f"ALTER TABLE model_activation_audit ADD COLUMN {col_name} {col_type};")
+                except Exception:
+                    pass
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_candidate_models_status ON candidate_models(status);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_candidate_datasets_time ON candidate_datasets(uploaded_at);")
     finally:
         conn.close()
 
@@ -209,6 +386,16 @@ def insert_session(session_data: Dict[str, Any]) -> str:
                 json.dumps(session_data.get("model_summary", {})),
                 json.dumps(session_data)
             ))
+
+        if "drift_analysis" in session_data and isinstance(session_data["drift_analysis"], dict):
+            try:
+                da = session_data["drift_analysis"]
+                da["session_id"] = session_id
+                save_drift_report(da)
+            except Exception as e_dr:
+                import logging
+                logging.getLogger(__name__).warning(f"Error persisting drift analysis from insert_session: {e_dr}")
+
         return session_id
     finally:
         conn.close()
@@ -376,7 +563,8 @@ def get_detections(
                 "anomaly_status": r["anomaly_status"] if "anomaly_status" in keys else r.get("anomaly_verdict", "NORMAL"),
                 "anomaly_score": r["anomaly_score"],
                 "detection_reason": r["detection_reason"] if "detection_reason" in keys else "",
-                "requires_investigation": bool(r["requires_investigation"]) if "requires_investigation" in keys else (r["verdict"] in ["THREAT", "KNOWN_THREAT", "UNKNOWN_ANOMALOUS"])
+                "requires_investigation": bool(r["requires_investigation"]) if "requires_investigation" in keys else (r["verdict"] in ["THREAT", "KNOWN_THREAT", "UNKNOWN_ANOMALOUS"]),
+                "flow_metadata": json.loads(r["flow_metadata"]) if "flow_metadata" in keys and r["flow_metadata"] else {}
             })
         return results
     finally:
@@ -672,7 +860,7 @@ def get_session_by_id(session_id: str) -> Optional[Dict[str, Any]]:
         conn.close()
 
 
-def get_session_report(session_id: str) -> Optional[Dict[str, Any]]:
+def get_session_report(session_id: str, include_drift: bool = True) -> Optional[Dict[str, Any]]:
     """
     Retrieves the complete, immutable persistent classification report for a session.
     If report_data is cached, loads and enriches it; otherwise synthesizes the report
@@ -716,6 +904,44 @@ def get_session_report(session_id: str) -> Optional[Dict[str, Any]]:
             report["severity_distribution"] = json.loads(row["severity_distribution"]) if row["severity_distribution"] else {}
         if "model_summary" not in report or not report["model_summary"]:
             report["model_summary"] = json.loads(row["model_summary"]) if row["model_summary"] else {}
+
+        ms = report.get("model_summary") or {}
+        if "fcnn_avg" not in ms or ms.get("fcnn_avg") is None:
+            try:
+                cur_ms = conn.execute("""
+                    SELECT 
+                        AVG(json_extract(model_breakdown, '$.fcnn')),
+                        AVG(json_extract(model_breakdown, '$.cnn')),
+                        AVG(json_extract(model_breakdown, '$.lstm')),
+                        AVG(confidence),
+                        COUNT(*)
+                    FROM detections
+                    WHERE session_id = ? AND model_breakdown IS NOT NULL
+                """, (session_id,))
+                ms_row = cur_ms.fetchone()
+                if ms_row and ms_row[4] > 0 and ms_row[0] is not None:
+                    ms["fcnn_avg"] = round(float(ms_row[0]), 4)
+                    ms["cnn_avg"] = round(float(ms_row[1]), 4)
+                    ms["lstm_avg"] = round(float(ms_row[2]), 4)
+                    ms["ensemble_avg"] = round(float(ms_row[3]), 4)
+                else:
+                    ms["fcnn_avg"] = None
+                    ms["cnn_avg"] = None
+                    ms["lstm_avg"] = None
+                    ms["ensemble_avg"] = None
+            except Exception:
+                pass
+            report["model_summary"] = ms
+
+        # Enrich drift analysis from drift_reports table (omitted for Regular Security Analysts)
+        if include_drift:
+            if not report.get("drift_analysis"):
+                try:
+                    report["drift_analysis"] = get_drift_report_by_session(session_id)
+                except Exception:
+                    report["drift_analysis"] = None
+        else:
+            report["drift_analysis"] = None
 
         # Enrich campaigns, known_threats_list, and unknown_anomalies_list
         if not report.get("campaigns"):
@@ -772,6 +998,7 @@ def delete_session(session_id: str) -> bool:
 
             conn.execute("DELETE FROM detections WHERE session_id = ?", (session_id,))
             conn.execute("DELETE FROM campaigns WHERE session_id = ?", (session_id,))
+            conn.execute("DELETE FROM drift_reports WHERE session_id = ?", (session_id,))
             conn.execute("DELETE FROM analysis_sessions WHERE session_id = ?", (session_id,))
             return True
     finally:
@@ -786,7 +1013,142 @@ def clear_all_history():
         with conn:
             conn.execute("DELETE FROM detections;")
             conn.execute("DELETE FROM campaigns;")
+            conn.execute("DELETE FROM drift_reports;")
             conn.execute("DELETE FROM analysis_sessions;")
+    finally:
+        conn.close()
+
+
+# -----------------------------------------------------------------------------
+# Dual-Layer Data Drift Reports Persistence
+# -----------------------------------------------------------------------------
+
+def save_drift_report(report_dict: Dict[str, Any]) -> str:
+    """Persists a dual-layer drift report into SQLite."""
+    init_db()
+    conn = get_connection()
+    now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+    report_id = report_dict.get("id") or f"DRIFT-{time.strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
+    session_id = report_dict.get("session_id")
+    upload_id = report_dict.get("upload_id")
+
+    l1 = report_dict.get("layer1_network_features")
+    l1_score = float(l1["score"]) if (l1 and "score" in l1 and l1["score"] is not None) else None
+    l2 = report_dict.get("layer2_event_profiles")
+    l2_score = float(l2["score"]) if (l2 and "score" in l2 and l2["score"] is not None) else None
+
+    try:
+        with conn:
+            conn.execute("""
+            INSERT OR REPLACE INTO drift_reports (
+                id, session_id, upload_id, timestamp, reference_experiment, reference_population,
+                overall_drift_score, overall_drift_percentage, drift_status, recommendation_alert,
+                recommendation_message, is_partial, omitted_layer, layer1_score, layer2_score, report_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                report_id,
+                session_id,
+                upload_id,
+                report_dict.get("timestamp") or now_str,
+                report_dict.get("reference_experiment", "exp_b"),
+                report_dict.get("reference_population", "full"),
+                float(report_dict.get("overall_drift_score", 0.0)),
+                float(report_dict.get("overall_drift_percentage", 0.0)),
+                report_dict.get("drift_status", "LOW"),
+                1 if report_dict.get("recommendation_alert") else 0,
+                report_dict.get("recommendation_message", ""),
+                1 if report_dict.get("is_partial") else 0,
+                report_dict.get("omitted_layer") or "",
+                l1_score,
+                l2_score,
+                json.dumps(report_dict)
+            ))
+        return report_id
+    finally:
+        conn.close()
+
+
+def get_latest_drift_report() -> Optional[Dict[str, Any]]:
+    """Retrieves the most recent data drift evaluation report."""
+    init_db()
+    conn = get_connection()
+    try:
+        cur = conn.execute("""
+        SELECT report_json FROM drift_reports
+        ORDER BY timestamp DESC, rowid DESC
+        LIMIT 1
+        """)
+        row = cur.fetchone()
+        if not row:
+            return None
+        return json.loads(row["report_json"])
+    finally:
+        conn.close()
+
+
+def get_drift_report_by_session(session_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieves drift report for a specific session."""
+    init_db()
+    conn = get_connection()
+    try:
+        cur = conn.execute("""
+        SELECT report_json FROM drift_reports
+        WHERE session_id = ?
+        ORDER BY timestamp DESC
+        LIMIT 1
+        """, (session_id,))
+        row = cur.fetchone()
+        if row:
+            return json.loads(row["report_json"])
+
+        cur_sess = conn.execute("SELECT report_data FROM analysis_sessions WHERE session_id = ?", (session_id,))
+        row_sess = cur_sess.fetchone()
+        if row_sess and row_sess["report_data"]:
+            try:
+                sess_data = json.loads(row_sess["report_data"])
+                if "drift_analysis" in sess_data:
+                    return sess_data["drift_analysis"]
+            except Exception:
+                pass
+        return None
+    finally:
+        conn.close()
+
+
+def get_drift_reports_history(limit: int = 50) -> List[Dict[str, Any]]:
+    """Retrieves summarized historical data drift reports for trend visualization."""
+    init_db()
+    conn = get_connection()
+    try:
+        cur = conn.execute("""
+        SELECT id, session_id, upload_id, timestamp, reference_experiment, reference_population,
+               overall_drift_score, overall_drift_percentage, drift_status, recommendation_alert,
+               recommendation_message, is_partial, omitted_layer, layer1_score, layer2_score
+        FROM drift_reports
+        ORDER BY timestamp DESC, rowid DESC
+        LIMIT ?
+        """, (limit,))
+        rows = cur.fetchall()
+        return [
+            {
+                "id": r["id"],
+                "session_id": r["session_id"],
+                "upload_id": r["upload_id"],
+                "timestamp": r["timestamp"],
+                "reference_experiment": r["reference_experiment"],
+                "reference_population": r["reference_population"],
+                "overall_drift_score": float(r["overall_drift_score"]),
+                "overall_drift_percentage": float(r["overall_drift_percentage"]),
+                "drift_status": r["drift_status"],
+                "recommendation_alert": bool(r["recommendation_alert"]),
+                "recommendation_message": r["recommendation_message"],
+                "is_partial": bool(r["is_partial"]),
+                "omitted_layer": r["omitted_layer"],
+                "layer1_score": float(r["layer1_score"]) if r["layer1_score"] is not None else None,
+                "layer2_score": float(r["layer2_score"]) if r["layer2_score"] is not None else None,
+            }
+            for r in rows
+        ]
     finally:
         conn.close()
 
@@ -931,3 +1293,777 @@ def mark_recovery_token_used(token: str) -> bool:
             return cur.rowcount > 0
     finally:
         conn.close()
+
+
+# =====================================================================
+# Resumable Chunked Upload & Processing Helper Functions
+# =====================================================================
+
+def create_upload_session(
+    upload_id: str,
+    session_id: str,
+    filename: str,
+    file_size: int,
+    file_hash: str,
+    total_chunks: int
+) -> Dict[str, Any]:
+    """Creates a new tracking session for a chunked upload."""
+    init_db()
+    conn = get_connection()
+    now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with conn:
+            conn.execute("""
+            INSERT OR REPLACE INTO upload_sessions (
+                upload_id, session_id, filename, file_size, file_hash, total_chunks,
+                uploaded_chunks_count, upload_status, sort_status, processing_status,
+                total_rows, processed_rows, total_batches, completed_batches,
+                global_t0, last_finalized_k, created_at, updated_at, error_message
+            ) VALUES (?, ?, ?, ?, ?, ?, 0, 'UPLOADING', 'PENDING', 'PENDING', 0, 0, 0, 0, '', -1, ?, ?, '')
+            """, (upload_id, session_id, filename, file_size, file_hash, total_chunks, now_str, now_str))
+        return get_upload_session(upload_id) or {}
+    finally:
+        conn.close()
+
+
+def get_upload_session(upload_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieves an upload session record by upload_id."""
+    init_db()
+    conn = get_connection()
+    try:
+        cur = conn.execute("SELECT * FROM upload_sessions WHERE upload_id = ?", (upload_id,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        return dict(row)
+    finally:
+        conn.close()
+
+
+get_upload = get_upload_session
+
+
+def find_upload_session_by_hash(file_hash: str, file_size: int) -> Optional[Dict[str, Any]]:
+    """Finds an existing upload session by file hash and size for resume matching."""
+    init_db()
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "SELECT * FROM upload_sessions WHERE file_hash = ? AND file_size = ? ORDER BY created_at DESC LIMIT 1",
+            (file_hash, file_size)
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        return dict(row)
+    finally:
+        conn.close()
+
+
+def record_upload_chunk(upload_id: str, chunk_index: int, chunk_size: int) -> int:
+    """Records receipt of a file chunk and updates uploaded count atomically."""
+    init_db()
+    conn = get_connection()
+    now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with conn:
+            conn.execute("""
+            INSERT OR REPLACE INTO upload_chunks (upload_id, chunk_index, chunk_size, received_at)
+            VALUES (?, ?, ?, ?)
+            """, (upload_id, chunk_index, chunk_size, now_str))
+
+            cur = conn.execute("SELECT COUNT(*) FROM upload_chunks WHERE upload_id = ?", (upload_id,))
+            count = cur.fetchone()[0]
+
+            conn.execute("""
+            UPDATE upload_sessions
+            SET uploaded_chunks_count = ?, updated_at = ?
+            WHERE upload_id = ?
+            """, (count, now_str, upload_id))
+            return count
+    finally:
+        conn.close()
+
+
+def get_completed_chunks(upload_id: str) -> List[int]:
+    """Returns sorted list of chunk indices already uploaded for this session."""
+    init_db()
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "SELECT chunk_index FROM upload_chunks WHERE upload_id = ? ORDER BY chunk_index ASC",
+            (upload_id,)
+        )
+        return [row[0] for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def update_upload_status(
+    upload_id: str,
+    upload_status: Optional[str] = None,
+    sort_status: Optional[str] = None,
+    processing_status: Optional[str] = None,
+    error_message: Optional[str] = None
+) -> None:
+    """Updates status indicators for an upload session."""
+    init_db()
+    conn = get_connection()
+    now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+    updates = ["updated_at = ?"]
+    params = [now_str]
+
+    if upload_status is not None:
+        updates.append("upload_status = ?")
+        params.append(upload_status)
+    if sort_status is not None:
+        updates.append("sort_status = ?")
+        params.append(sort_status)
+    if processing_status is not None:
+        updates.append("processing_status = ?")
+        params.append(processing_status)
+    if error_message is not None:
+        updates.append("error_message = ?")
+        params.append(error_message)
+
+    params.append(upload_id)
+    sql = f"UPDATE upload_sessions SET {', '.join(updates)} WHERE upload_id = ?"
+    try:
+        with conn:
+            conn.execute(sql, tuple(params))
+    finally:
+        conn.close()
+
+
+def update_upload_progress(
+    upload_id: str,
+    total_rows: Optional[int] = None,
+    total_batches: Optional[int] = None,
+    processed_rows: Optional[int] = None,
+    completed_batches: Optional[int] = None,
+    global_t0: Optional[str] = None,
+    last_finalized_k: Optional[int] = None
+) -> None:
+    """Updates row, batch, and window progress counters for an upload session."""
+    init_db()
+    conn = get_connection()
+    now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+    updates = ["updated_at = ?"]
+    params = [now_str]
+
+    if total_rows is not None:
+        updates.append("total_rows = ?")
+        params.append(total_rows)
+    if total_batches is not None:
+        updates.append("total_batches = ?")
+        params.append(total_batches)
+    if processed_rows is not None:
+        updates.append("processed_rows = ?")
+        params.append(processed_rows)
+    if completed_batches is not None:
+        updates.append("completed_batches = ?")
+        params.append(completed_batches)
+    if global_t0 is not None:
+        updates.append("global_t0 = ?")
+        params.append(global_t0)
+    if last_finalized_k is not None:
+        updates.append("last_finalized_k = ?")
+        params.append(last_finalized_k)
+
+    params.append(upload_id)
+    sql = f"UPDATE upload_sessions SET {', '.join(updates)} WHERE upload_id = ?"
+    try:
+        with conn:
+            conn.execute(sql, tuple(params))
+    finally:
+        conn.close()
+
+
+def save_batch_checkpoint(
+    upload_id: str,
+    batch_index: int,
+    row_start: int,
+    row_end: int,
+    n_flows: int,
+    n_event_sets: int,
+    last_finalized_k: int,
+    boundary_state: str,
+    metrics_snapshot: str,
+    detections_list: List[Dict[str, Any]],
+    alert_windows_list: List[Dict[str, Any]]
+) -> None:
+    """
+    Atomically saves batch checkpoint, intermediate detections, and pending alert windows.
+    If an error occurs, the entire batch's state is rolled back.
+    """
+    init_db()
+    conn = get_connection()
+    now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with conn:
+            # 1. Insert intermediate detection records
+            det_rows = [
+                (
+                    d["id"],
+                    upload_id,
+                    batch_index,
+                    json.dumps(d)
+                )
+                for d in detections_list
+            ]
+            conn.executemany("""
+            INSERT OR REPLACE INTO batch_intermediate_detections (id, upload_id, batch_index, detection_json)
+            VALUES (?, ?, ?, ?)
+            """, det_rows)
+
+            # 2. Insert pending alert windows
+            win_rows = [
+                (
+                    w["event_set_id"],
+                    upload_id,
+                    batch_index,
+                    json.dumps(w["window_dict"]),
+                    json.dumps(w["flow_indices"])
+                )
+                for w in alert_windows_list
+            ]
+            conn.executemany("""
+            INSERT OR REPLACE INTO batch_pending_alert_windows (event_set_id, upload_id, batch_index, window_json, flow_indices_json)
+            VALUES (?, ?, ?, ?, ?)
+            """, win_rows)
+
+            # 3. Insert checkpoint record
+            conn.execute("""
+            INSERT OR REPLACE INTO batch_checkpoints (
+                upload_id, batch_index, row_start, row_end, n_flows, n_event_sets,
+                last_finalized_k, boundary_state, metrics_snapshot, status, checkpoint_time
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?)
+            """, (
+                upload_id, batch_index, row_start, row_end, n_flows, n_event_sets,
+                last_finalized_k, boundary_state, metrics_snapshot, now_str
+            ))
+
+            # 4. Update upload_sessions progress counters
+            conn.execute("""
+            UPDATE upload_sessions
+            SET completed_batches = ?, processed_rows = ?, last_finalized_k = ?, updated_at = ?
+            WHERE upload_id = ?
+            """, (batch_index + 1, row_end, last_finalized_k, now_str, upload_id))
+    finally:
+        conn.close()
+
+
+def get_latest_checkpoint(upload_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieves the most recent completed batch checkpoint for an upload session."""
+    init_db()
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "SELECT * FROM batch_checkpoints WHERE upload_id = ? AND status = 'COMPLETED' ORDER BY batch_index DESC LIMIT 1",
+            (upload_id,)
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        return dict(row)
+    finally:
+        conn.close()
+
+
+def get_all_checkpoints(upload_id: str) -> List[Dict[str, Any]]:
+    """Retrieves all completed checkpoints for an upload session."""
+    init_db()
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "SELECT * FROM batch_checkpoints WHERE upload_id = ? ORDER BY batch_index ASC",
+            (upload_id,)
+        )
+        return [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def get_pending_alert_windows(upload_id: str) -> List[Dict[str, Any]]:
+    """Retrieves all accumulated alert windows across all batches for global campaign coalescence."""
+    init_db()
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "SELECT * FROM batch_pending_alert_windows WHERE upload_id = ? ORDER BY batch_index ASC, event_set_id ASC",
+            (upload_id,)
+        )
+        out = []
+        for row in cur.fetchall():
+            out.append({
+                "event_set_id": row["event_set_id"],
+                "batch_index": row["batch_index"],
+                "window": json.loads(row["window_json"]),
+                "flow_indices": json.loads(row["flow_indices_json"])
+            })
+        return out
+    finally:
+        conn.close()
+
+
+def get_intermediate_detections(upload_id: str) -> List[Dict[str, Any]]:
+    """Retrieves all staged intermediate detection records for an upload session."""
+    init_db()
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "SELECT detection_json FROM batch_intermediate_detections WHERE upload_id = ? ORDER BY batch_index ASC, id ASC",
+            (upload_id,)
+        )
+        return [json.loads(row[0]) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def finalize_upload_session(
+    upload_id: str,
+    session_summary: Dict[str, Any],
+    coalesced_campaigns: List[Dict[str, Any]],
+    final_detections: List[Dict[str, Any]]
+) -> None:
+    """
+    Atomically commits the final analysis session, moves staged detections to production,
+    inserts coalesced campaigns, and cleans up staging tables in ONE transaction.
+    """
+    init_db()
+    conn = get_connection()
+    session_id = session_summary["session_id"]
+    now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with conn:
+            # 1. Insert master analysis session
+            conn.execute("""
+            INSERT OR REPLACE INTO analysis_sessions (
+                session_id, timestamp, source_name, input_type, total_records,
+                normal_events, threats_detected, known_threats, unknown_anomalous,
+                invalid_records, threat_ratio, attack_categories, severity_distribution,
+                model_summary, report_data
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                session_id,
+                session_summary.get("timestamp", now_str),
+                session_summary.get("source_name", "uploaded_file.csv"),
+                session_summary.get("input_type", "flow"),
+                session_summary.get("total_records", 0),
+                session_summary.get("normal_events", 0),
+                session_summary.get("threats_detected", 0),
+                session_summary.get("known_threats", 0),
+                session_summary.get("unknown_anomalous", 0),
+                session_summary.get("invalid_records", 0),
+                session_summary.get("threat_ratio", 0.0),
+                json.dumps(session_summary.get("attack_categories", {})),
+                json.dumps(session_summary.get("severity_distribution", {})),
+                json.dumps(session_summary.get("model_summary", {})),
+                json.dumps(session_summary.get("report_data", session_summary))
+            ))
+
+            # 2. Insert final detections into production table
+            det_rows = [
+                (
+                    d.get("id", f"DET-{session_id}-{i:04d}"),
+                    session_id,
+                    d.get("timestamp", now_str),
+                    d.get("source", session_summary.get("source_name", "flow")),
+                    d.get("input_type", "flow"),
+                    d.get("source_ip", "-"),
+                    d.get("destination_ip", "-"),
+                    d.get("destination_port", 0),
+                    d.get("protocol", "TCP"),
+                    d.get("verdict", "NORMAL"),
+                    d.get("prediction_status", d.get("verdict", "NORMAL")),
+                    d.get("predicted_class", "Benign Network Traffic"),
+                    d.get("confidence", 0.0),
+                    d.get("threat_confidence", d.get("confidence", 0.0)),
+                    d.get("threat_type", d.get("predicted_class", "Benign Network Traffic")),
+                    d.get("severity", "LOW"),
+                    d.get("dominant_basepoint", "bp_01"),
+                    d.get("dominant_similarity", 0.0),
+                    json.dumps(d.get("profile_vector", d.get("basepoint_profile", []))),
+                    json.dumps(d.get("model_breakdown", {})),
+                    d.get("anomaly_verdict", "NORMAL"),
+                    d.get("anomaly_status", "NORMAL"),
+                    d.get("anomaly_score", 0.0),
+                    d.get("detection_reason", ""),
+                    1 if d.get("requires_investigation") else 0,
+                    json.dumps(d.get("flow_metadata", {})),
+                    d.get("campaign_id", "-")
+                )
+                for i, d in enumerate(final_detections)
+            ]
+            conn.executemany("""
+            INSERT OR REPLACE INTO detections (
+                id, session_id, timestamp, source, input_type, source_ip, destination_ip,
+                destination_port, protocol, verdict, prediction_status, predicted_class,
+                confidence, threat_confidence, threat_type, severity, dominant_basepoint,
+                dominant_similarity, profile_vector, model_breakdown, anomaly_verdict,
+                anomaly_status, anomaly_score, detection_reason, requires_investigation,
+                flow_metadata, campaign_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, det_rows)
+
+            # 3. Insert coalesced campaigns
+            camp_rows = [
+                (
+                    c["campaign_id"],
+                    session_id,
+                    c.get("source_ip", "-"),
+                    c.get("destination_ip", "-"),
+                    c.get("start_time", now_str),
+                    c.get("end_time", now_str),
+                    c.get("verdict", "KNOWN_THREAT"),
+                    c.get("max_confidence", 0.0),
+                    c.get("window_count", 0),
+                    c.get("attributed_flow_count", 0),
+                    json.dumps(c.get("constituent_windows", []))
+                )
+                for c in coalesced_campaigns
+            ]
+            conn.executemany("""
+            INSERT OR REPLACE INTO campaigns (
+                campaign_id, session_id, source_ip, destination_ip, start_time, end_time,
+                verdict, max_confidence, window_count, attributed_flow_count, constituent_windows
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, camp_rows)
+
+            # 4. Insert drift report if present
+            if "drift_analysis" in session_summary and isinstance(session_summary["drift_analysis"], dict):
+                da = session_summary["drift_analysis"]
+                drift_id = da.get("id") or f"DRIFT-{time.strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
+                l1 = da.get("layer1_network_features")
+                l1_score = float(l1["score"]) if (l1 and "score" in l1 and l1["score"] is not None) else None
+                l2 = da.get("layer2_event_profiles")
+                l2_score = float(l2["score"]) if (l2 and "score" in l2 and l2["score"] is not None) else None
+
+                conn.execute("""
+                INSERT OR REPLACE INTO drift_reports (
+                    id, session_id, upload_id, timestamp, reference_experiment, reference_population,
+                    overall_drift_score, overall_drift_percentage, drift_status, recommendation_alert,
+                    recommendation_message, is_partial, omitted_layer, layer1_score, layer2_score, report_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    drift_id,
+                    session_id,
+                    upload_id,
+                    da.get("timestamp") or now_str,
+                    da.get("reference_experiment", "exp_b"),
+                    da.get("reference_population", "full"),
+                    float(da.get("overall_drift_score", 0.0)),
+                    float(da.get("overall_drift_percentage", 0.0)),
+                    da.get("drift_status", "LOW"),
+                    1 if da.get("recommendation_alert") else 0,
+                    da.get("recommendation_message", ""),
+                    1 if da.get("is_partial") else 0,
+                    da.get("omitted_layer") or "",
+                    l1_score,
+                    l2_score,
+                    json.dumps(da)
+                ))
+
+            # 5. Mark upload session completed
+            conn.execute("""
+            UPDATE upload_sessions
+            SET processing_status = 'COMPLETED', updated_at = ?
+            WHERE upload_id = ?
+            """, (now_str, upload_id))
+
+            # 6. Clean up temporary staging tables
+            conn.execute("DELETE FROM batch_intermediate_detections WHERE upload_id = ?", (upload_id,))
+            conn.execute("DELETE FROM batch_pending_alert_windows WHERE upload_id = ?", (upload_id,))
+    finally:
+        conn.close()
+
+
+PROTECTED_INCIDENT_UPLOADS = {"UPL-20261118220457-b41aa8a7"}
+
+
+def cancel_and_cleanup_upload(upload_id: str) -> bool:
+    """Cancels an upload session and drops all associated staging records."""
+    if upload_id in PROTECTED_INCIDENT_UPLOADS:
+        raise ValueError(
+            f"Upload session '{upload_id}' is protected for forensic diagnostic audit and cannot be purged."
+        )
+    init_db()
+    conn = get_connection()
+    now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with conn:
+            conn.execute("""
+            UPDATE upload_sessions
+            SET upload_status = 'CANCELLED', processing_status = 'CANCELLED', updated_at = ?
+            WHERE upload_id = ?
+            """, (now_str, upload_id))
+            conn.execute("DELETE FROM upload_chunks WHERE upload_id = ?", (upload_id,))
+            conn.execute("DELETE FROM batch_checkpoints WHERE upload_id = ?", (upload_id,))
+            conn.execute("DELETE FROM batch_intermediate_detections WHERE upload_id = ?", (upload_id,))
+            conn.execute("DELETE FROM batch_pending_alert_windows WHERE upload_id = ?", (upload_id,))
+            return True
+    finally:
+        conn.close()
+
+
+# -----------------------------------------------------------------------------
+# Training Dataset Management & Candidate Model Studio Persistence
+# -----------------------------------------------------------------------------
+
+def save_candidate_dataset(dataset_data: Dict[str, Any]) -> str:
+    """Persists a validated candidate dataset entry into SQLite."""
+    init_db()
+    dataset_id = dataset_data.get("dataset_id") or f"DS-CAND-{time.strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
+    conn = get_connection()
+    try:
+        with conn:
+            conn.execute("""
+            INSERT OR REPLACE INTO candidate_datasets (
+                dataset_id, filename, file_path, row_count, dataset_type,
+                uploaded_by, uploaded_at, validation_report_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                dataset_id,
+                dataset_data["filename"],
+                str(dataset_data["file_path"]),
+                int(dataset_data["row_count"]),
+                dataset_data.get("dataset_type", "EVENT_PROFILES"),
+                dataset_data.get("uploaded_by", "admin@soc.ai"),
+                dataset_data.get("uploaded_at") or time.strftime("%Y-%m-%d %H:%M:%S"),
+                json.dumps(dataset_data.get("validation_report", {}))
+            ))
+        return dataset_id
+    finally:
+        conn.close()
+
+
+def get_candidate_dataset(dataset_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieves a candidate dataset entry by ID."""
+    init_db()
+    conn = get_connection()
+    try:
+        cur = conn.execute("SELECT * FROM candidate_datasets WHERE dataset_id = ?", (dataset_id,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        try:
+            d["validation_report"] = json.loads(d.get("validation_report_json") or "{}")
+        except Exception:
+            d["validation_report"] = {}
+        return d
+    finally:
+        conn.close()
+
+
+def list_candidate_datasets(limit: int = 50) -> List[Dict[str, Any]]:
+    """Lists recent candidate datasets sorted by upload time descending."""
+    init_db()
+    conn = get_connection()
+    try:
+        cur = conn.execute("SELECT * FROM candidate_datasets ORDER BY uploaded_at DESC LIMIT ?", (limit,))
+        results = []
+        for row in cur.fetchall():
+            d = dict(row)
+            try:
+                d["validation_report"] = json.loads(d.get("validation_report_json") or "{}")
+            except Exception:
+                d["validation_report"] = {}
+            results.append(d)
+        return results
+    finally:
+        conn.close()
+
+
+def save_candidate_model(model_data: Dict[str, Any]) -> str:
+    """Persists a trained candidate model entry into SQLite."""
+    init_db()
+    candidate_id = model_data.get("candidate_id") or f"MDL-CAND-{time.strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
+    conn = get_connection()
+    try:
+        with conn:
+            conn.execute("""
+            INSERT OR REPLACE INTO candidate_models (
+                candidate_id, dataset_id, model_name, status, created_at,
+                created_by, metrics_json, artifact_path, approved_by, approved_at, approval_note
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                candidate_id,
+                model_data.get("dataset_id", "UNKNOWN"),
+                model_data.get("model_name", "FCNN_Candidate_Ensemble"),
+                model_data.get("status", "TRAINED"),
+                model_data.get("created_at") or time.strftime("%Y-%m-%d %H:%M:%S"),
+                model_data.get("created_by", "admin@soc.ai"),
+                json.dumps(model_data.get("metrics", {})),
+                str(model_data.get("artifact_path", "")),
+                model_data.get("approved_by", ""),
+                model_data.get("approved_at", ""),
+                model_data.get("approval_note", "")
+            ))
+        return candidate_id
+    finally:
+        conn.close()
+
+
+def get_candidate_model(candidate_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieves a candidate model entry by ID."""
+    init_db()
+    conn = get_connection()
+    try:
+        cur = conn.execute("SELECT * FROM candidate_models WHERE candidate_id = ?", (candidate_id,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        try:
+            d["metrics"] = json.loads(d.get("metrics_json") or "{}")
+        except Exception:
+            d["metrics"] = {}
+        return d
+    finally:
+        conn.close()
+
+
+def get_active_candidate_model() -> Optional[Dict[str, Any]]:
+    """Retrieves the currently ACTIVE candidate model if one was activated."""
+    init_db()
+    conn = get_connection()
+    try:
+        cur = conn.execute("SELECT * FROM candidate_models WHERE status = 'ACTIVE' ORDER BY approved_at DESC LIMIT 1")
+        row = cur.fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        try:
+            d["metrics"] = json.loads(d.get("metrics_json") or "{}")
+        except Exception:
+            d["metrics"] = {}
+        return d
+    finally:
+        conn.close()
+
+
+def update_candidate_model_status(
+    candidate_id: str,
+    status: str,
+    approved_by: str = "",
+    approval_note: str = ""
+) -> bool:
+    """Updates candidate model status (e.g. TRAINED, ACTIVE, ARCHIVED, ROLLED_BACK)."""
+    init_db()
+    conn = get_connection()
+    now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with conn:
+            conn.execute("""
+            UPDATE candidate_models
+            SET status = ?, approved_by = ?, approved_at = ?, approval_note = ?
+            WHERE candidate_id = ?
+            """, (status, approved_by, now_str if approved_by else "", approval_note, candidate_id))
+            return True
+    finally:
+        conn.close()
+
+
+def list_candidate_models(limit: int = 50) -> List[Dict[str, Any]]:
+    """Lists candidate models sorted by creation time descending."""
+    init_db()
+    conn = get_connection()
+    try:
+        cur = conn.execute("SELECT * FROM candidate_models ORDER BY created_at DESC LIMIT ?", (limit,))
+        results = []
+        for row in cur.fetchall():
+            d = dict(row)
+            try:
+                d["metrics"] = json.loads(d.get("metrics_json") or "{}")
+            except Exception:
+                d["metrics"] = {}
+            results.append(d)
+        return results
+    finally:
+        conn.close()
+
+
+def save_model_backup(backup_data: Dict[str, Any]) -> str:
+    """Records a pre-activation rollback backup snapshot in SQLite."""
+    init_db()
+    backup_id = backup_data.get("backup_id") or f"BKP-{time.strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
+    conn = get_connection()
+    try:
+        with conn:
+            conn.execute("""
+            INSERT OR REPLACE INTO model_backups (
+                backup_id, timestamp, previous_model_type, previous_candidate_id, backup_path, created_by
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                backup_id,
+                backup_data.get("timestamp") or time.strftime("%Y-%m-%d %H:%M:%S"),
+                backup_data.get("previous_model_type", "EXPERIMENT_B_BASELINE"),
+                backup_data.get("previous_candidate_id"),
+                str(backup_data.get("backup_path", "")),
+                backup_data.get("created_by", "admin@soc.ai")
+            ))
+        return backup_id
+    finally:
+        conn.close()
+
+
+def list_model_backups(limit: int = 20) -> List[Dict[str, Any]]:
+    """Lists available model backups."""
+    init_db()
+    conn = get_connection()
+    try:
+        cur = conn.execute("SELECT * FROM model_backups ORDER BY timestamp DESC LIMIT ?", (limit,))
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def save_activation_audit(audit_data: Dict[str, Any]) -> str:
+    """Records an authorized activation or rollback action in the audit trail."""
+    init_db()
+    act_id = audit_data.get("activation_id") or f"ACT-AUDIT-{time.strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
+    metrics_str = json.dumps(audit_data.get("metrics", {})) if isinstance(audit_data.get("metrics"), dict) else str(audit_data.get("metrics", ""))
+    conn = get_connection()
+    try:
+        with conn:
+            conn.execute("""
+            INSERT OR REPLACE INTO model_activation_audit (
+                activation_id, candidate_id, dataset_id, action, approved_by, approval_note, timestamp, backup_id, metrics_json, activation_result
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                act_id,
+                audit_data.get("candidate_id", ""),
+                audit_data.get("dataset_id", ""),
+                audit_data.get("action", "ACTIVATE"),
+                audit_data.get("approved_by", "admin@soc.ai"),
+                audit_data.get("approval_note", ""),
+                audit_data.get("timestamp") or time.strftime("%Y-%m-%d %H:%M:%S"),
+                audit_data.get("backup_id", ""),
+                metrics_str,
+                audit_data.get("activation_result", "SUCCESS")
+            ))
+        return act_id
+    finally:
+        conn.close()
+
+
+def list_activation_audits(limit: int = 50) -> List[Dict[str, Any]]:
+    """Lists activation audit records."""
+    init_db()
+    conn = get_connection()
+    try:
+        cur = conn.execute("SELECT * FROM model_activation_audit ORDER BY timestamp DESC LIMIT ?", (limit,))
+        results = []
+        for r in cur.fetchall():
+            d = dict(r)
+            if "metrics_json" in d:
+                try:
+                    d["metrics"] = json.loads(d["metrics_json"] or "{}")
+                except Exception:
+                    d["metrics"] = {}
+            results.append(d)
+        return results
+    finally:
+        conn.close()
+

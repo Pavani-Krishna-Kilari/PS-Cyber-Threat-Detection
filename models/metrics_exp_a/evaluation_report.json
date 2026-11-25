@@ -1,0 +1,1277 @@
+{
+  "experiment": "Experiment A (Multi-Day Time-Blocked Classification)",
+  "completed_at": "2026-11-14 12:24:23",
+  "total_elapsed_seconds": 251.47,
+  "dataset": {
+    "source_directory": "C:\\Users\\pavani krishna\\Desktop\\cyber\\cyber-threat-detection\\data\\processed\\event_profiles_exp_a",
+    "train_samples": 1935461,
+    "train_attacks": 1088,
+    "validation_samples": 321262,
+    "validation_attacks": 165,
+    "test_samples": 312537,
+    "test_attacks": 98,
+    "imbalance_ratio": "1 : 1778.9"
+  },
+  "loss_weights": {
+    "0": 0.5002812280775217,
+    "1": 889.4581801470588
+  },
+  "model_runtimes_seconds": {
+    "FCNN": 40.6,
+    "CNN": 100.76,
+    "LSTM": 82.84,
+    "Ensemble": 0.8,
+    "IsolationForest": 6.22
+  },
+  "best_epochs": {
+    "FCNN": 5,
+    "CNN": 6,
+    "LSTM": 11,
+    "Ensemble": "N/A (Composite)",
+    "IsolationForest": "N/A (Unsupervised)"
+  },
+  "validation_metrics": {
+    "FCNN": {
+      "accuracy": 0.9787774464455803,
+      "balanced_accuracy": 0.5744450864984536,
+      "precision": 0.004173498285884632,
+      "recall": 0.1696969696969697,
+      "f1_score": 0.008146639511201629,
+      "macro_f1": 0.49871030551820605,
+      "weighted_f1": 0.9887700650258973,
+      "pr_auc": 0.0009979057507313962,
+      "roc_auc": 0.6276679255140593,
+      "false_positive_rate": 0.020806796700062597,
+      "confusion_matrix": {
+        "tn": 314416,
+        "fp": 6681,
+        "fn": 137,
+        "tp": 28,
+        "matrix": [
+          [
+            314416,
+            6681
+          ],
+          [
+            137,
+            28
+          ]
+        ]
+      },
+      "threshold": 0.8948979591836734,
+      "total_samples": 321262,
+      "attack_samples": 165,
+      "normal_samples": 321097,
+      "per_class_support": {
+        "BENIGN": {
+          "support": 321097,
+          "detected": 314416,
+          "recall": 0.9791932032999374,
+          "status": "EVALUATED"
+        },
+        "Bot": {
+          "support": 110,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "DDoS": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS GoldenEye": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS Hulk": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS Slowhttptest": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS slowloris": {
+          "support": 11,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "FTP-Patator": {
+          "support": 11,
+          "detected": 11,
+          "recall": 1.0,
+          "status": "EVALUATED"
+        },
+        "Heartbleed": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "Infiltration": {
+          "support": 11,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "PortScan": {
+          "support": 7,
+          "detected": 6,
+          "recall": 0.8571428571428571,
+          "status": "EVALUATED"
+        },
+        "SSH-Patator": {
+          "support": 11,
+          "detected": 11,
+          "recall": 1.0,
+          "status": "EVALUATED"
+        },
+        "Web Attack - Brute Force": {
+          "support": 4,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "Web Attack - Sql Injection": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "Web Attack - XSS": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        }
+      }
+    },
+    "CNN": {
+      "accuracy": 0.9833251364929559,
+      "balanced_accuracy": 0.5767200999679036,
+      "precision": 0.005335365853658537,
+      "recall": 0.1696969696969697,
+      "f1_score": 0.010345464622205801,
+      "macro_f1": 0.5009685983375881,
+      "weighted_f1": 0.9910877644684876,
+      "pr_auc": 0.001257857358630615,
+      "roc_auc": 0.6337753785531248,
+      "false_positive_rate": 0.016256769761162516,
+      "confusion_matrix": {
+        "tn": 315877,
+        "fp": 5220,
+        "fn": 137,
+        "tp": 28,
+        "matrix": [
+          [
+            315877,
+            5220
+          ],
+          [
+            137,
+            28
+          ]
+        ]
+      },
+      "threshold": 0.8581632653061224,
+      "total_samples": 321262,
+      "attack_samples": 165,
+      "normal_samples": 321097,
+      "per_class_support": {
+        "BENIGN": {
+          "support": 321097,
+          "detected": 315877,
+          "recall": 0.9837432302388375,
+          "status": "EVALUATED"
+        },
+        "Bot": {
+          "support": 110,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "DDoS": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS GoldenEye": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS Hulk": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS Slowhttptest": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS slowloris": {
+          "support": 11,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "FTP-Patator": {
+          "support": 11,
+          "detected": 11,
+          "recall": 1.0,
+          "status": "EVALUATED"
+        },
+        "Heartbleed": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "Infiltration": {
+          "support": 11,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "PortScan": {
+          "support": 7,
+          "detected": 6,
+          "recall": 0.8571428571428571,
+          "status": "EVALUATED"
+        },
+        "SSH-Patator": {
+          "support": 11,
+          "detected": 11,
+          "recall": 1.0,
+          "status": "EVALUATED"
+        },
+        "Web Attack - Brute Force": {
+          "support": 4,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "Web Attack - Sql Injection": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "Web Attack - XSS": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        }
+      }
+    },
+    "LSTM": {
+      "accuracy": 0.9784319340600507,
+      "balanced_accuracy": 0.562157258058808,
+      "precision": 0.0035231943628890195,
+      "recall": 0.14545454545454545,
+      "f1_score": 0.006879747742582772,
+      "macro_f1": 0.4979886641259854,
+      "weighted_f1": 0.9885931139294422,
+      "pr_auc": 0.0009352013966748168,
+      "roc_auc": 0.6218250767421267,
+      "false_positive_rate": 0.02114002933692934,
+      "confusion_matrix": {
+        "tn": 314309,
+        "fp": 6788,
+        "fn": 141,
+        "tp": 24,
+        "matrix": [
+          [
+            314309,
+            6788
+          ],
+          [
+            141,
+            24
+          ]
+        ]
+      },
+      "threshold": 0.8397959183673469,
+      "total_samples": 321262,
+      "attack_samples": 165,
+      "normal_samples": 321097,
+      "per_class_support": {
+        "BENIGN": {
+          "support": 321097,
+          "detected": 314309,
+          "recall": 0.9788599706630706,
+          "status": "EVALUATED"
+        },
+        "Bot": {
+          "support": 110,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "DDoS": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS GoldenEye": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS Hulk": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS Slowhttptest": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS slowloris": {
+          "support": 11,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "FTP-Patator": {
+          "support": 11,
+          "detected": 11,
+          "recall": 1.0,
+          "status": "EVALUATED"
+        },
+        "Heartbleed": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "Infiltration": {
+          "support": 11,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "PortScan": {
+          "support": 7,
+          "detected": 2,
+          "recall": 0.2857142857142857,
+          "status": "EVALUATED"
+        },
+        "SSH-Patator": {
+          "support": 11,
+          "detected": 11,
+          "recall": 1.0,
+          "status": "EVALUATED"
+        },
+        "Web Attack - Brute Force": {
+          "support": 4,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "Web Attack - Sql Injection": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "Web Attack - XSS": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        }
+      }
+    },
+    "Ensemble": {
+      "accuracy": 0.9759573183258524,
+      "balanced_accuracy": 0.5760630437267092,
+      "precision": 0.003807273204673756,
+      "recall": 0.17575757575757575,
+      "f1_score": 0.007453096890259574,
+      "macro_f1": 0.49764218660992743,
+      "weighted_f1": 0.9873277545946639,
+      "pr_auc": 0.0010606346503980904,
+      "roc_auc": 0.6228105808864894,
+      "false_positive_rate": 0.02363148830415731,
+      "confusion_matrix": {
+        "tn": 313509,
+        "fp": 7588,
+        "fn": 136,
+        "tp": 29,
+        "matrix": [
+          [
+            313509,
+            7588
+          ],
+          [
+            136,
+            29
+          ]
+        ]
+      },
+      "threshold": 0.8397959183673469,
+      "total_samples": 321262,
+      "attack_samples": 165,
+      "normal_samples": 321097,
+      "per_class_support": {
+        "BENIGN": {
+          "support": 321097,
+          "detected": 313509,
+          "recall": 0.9763685116958427,
+          "status": "EVALUATED"
+        },
+        "Bot": {
+          "support": 110,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "DDoS": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS GoldenEye": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS Hulk": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS Slowhttptest": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS slowloris": {
+          "support": 11,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "FTP-Patator": {
+          "support": 11,
+          "detected": 11,
+          "recall": 1.0,
+          "status": "EVALUATED"
+        },
+        "Heartbleed": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "Infiltration": {
+          "support": 11,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "PortScan": {
+          "support": 7,
+          "detected": 7,
+          "recall": 1.0,
+          "status": "EVALUATED"
+        },
+        "SSH-Patator": {
+          "support": 11,
+          "detected": 11,
+          "recall": 1.0,
+          "status": "EVALUATED"
+        },
+        "Web Attack - Brute Force": {
+          "support": 4,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "Web Attack - Sql Injection": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "Web Attack - XSS": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        }
+      }
+    },
+    "IsolationForest": {
+      "accuracy": 0.999069295466006,
+      "balanced_accuracy": 0.49979134031149464,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1_score": 0.0,
+      "macro_f1": 0.4997672155397252,
+      "weighted_f1": 0.9990210707034081,
+      "pr_auc": 0.0007380967786643276,
+      "roc_auc": 0.4762825091747504,
+      "false_positive_rate": 0.00041731937701068524,
+      "confusion_matrix": {
+        "tn": 320963,
+        "fp": 134,
+        "fn": 165,
+        "tp": 0,
+        "matrix": [
+          [
+            320963,
+            134
+          ],
+          [
+            165,
+            0
+          ]
+        ]
+      },
+      "threshold": 0.05,
+      "total_samples": 321262,
+      "attack_samples": 165,
+      "normal_samples": 321097,
+      "per_class_support": {
+        "BENIGN": {
+          "support": 321097,
+          "detected": 320963,
+          "recall": 0.9995826806229893,
+          "status": "EVALUATED"
+        },
+        "Bot": {
+          "support": 110,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "DDoS": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS GoldenEye": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS Hulk": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS Slowhttptest": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS slowloris": {
+          "support": 11,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "FTP-Patator": {
+          "support": 11,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "Heartbleed": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "Infiltration": {
+          "support": 11,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "PortScan": {
+          "support": 7,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "SSH-Patator": {
+          "support": 11,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "Web Attack - Brute Force": {
+          "support": 4,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "Web Attack - Sql Injection": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "Web Attack - XSS": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        }
+      }
+    }
+  },
+  "test_metrics": {
+    "FCNN": {
+      "accuracy": 0.9836371373629362,
+      "balanced_accuracy": 0.6143834051917139,
+      "precision": 0.004739336492890996,
+      "recall": 0.24489795918367346,
+      "f1_score": 0.009298721425803952,
+      "macro_f1": 0.5005245817120115,
+      "weighted_f1": 0.9914423816129972,
+      "pr_auc": 0.0012865877810576813,
+      "roc_auc": 0.6980682792546411,
+      "false_positive_rate": 0.01613114880024581,
+      "confusion_matrix": {
+        "tn": 307399,
+        "fp": 5040,
+        "fn": 74,
+        "tp": 24,
+        "matrix": [
+          [
+            307399,
+            5040
+          ],
+          [
+            74,
+            24
+          ]
+        ]
+      },
+      "threshold": 0.8948979591836734,
+      "total_samples": 312537,
+      "attack_samples": 98,
+      "normal_samples": 312439,
+      "per_class_support": {
+        "BENIGN": {
+          "support": 312439,
+          "detected": 307399,
+          "recall": 0.9838688511997542,
+          "status": "EVALUATED"
+        },
+        "Bot": {
+          "support": 60,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "DDoS": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS GoldenEye": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS Hulk": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS Slowhttptest": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS slowloris": {
+          "support": 1,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "FTP-Patator": {
+          "support": 3,
+          "detected": 1,
+          "recall": 0.3333333333333333,
+          "status": "EVALUATED"
+        },
+        "Heartbleed": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "Infiltration": {
+          "support": 3,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "PortScan": {
+          "support": 9,
+          "detected": 1,
+          "recall": 0.1111111111111111,
+          "status": "EVALUATED"
+        },
+        "SSH-Patator": {
+          "support": 11,
+          "detected": 11,
+          "recall": 1.0,
+          "status": "EVALUATED"
+        },
+        "Web Attack - Brute Force": {
+          "support": 11,
+          "detected": 11,
+          "recall": 1.0,
+          "status": "EVALUATED"
+        },
+        "Web Attack - Sql Injection": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "Web Attack - XSS": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        }
+      }
+    },
+    "CNN": {
+      "accuracy": 0.9882989854001286,
+      "balanced_accuracy": 0.570811095795287,
+      "precision": 0.004179437169127891,
+      "recall": 0.15306122448979592,
+      "f1_score": 0.008136696501220505,
+      "macro_f1": 0.5011257376070016,
+      "weighted_f1": 0.99380561259147,
+      "pr_auc": 0.0020585628689685537,
+      "roc_auc": 0.7025298195350589,
+      "false_positive_rate": 0.011439032899221928,
+      "confusion_matrix": {
+        "tn": 308865,
+        "fp": 3574,
+        "fn": 83,
+        "tp": 15,
+        "matrix": [
+          [
+            308865,
+            3574
+          ],
+          [
+            83,
+            15
+          ]
+        ]
+      },
+      "threshold": 0.8581632653061224,
+      "total_samples": 312537,
+      "attack_samples": 98,
+      "normal_samples": 312439,
+      "per_class_support": {
+        "BENIGN": {
+          "support": 312439,
+          "detected": 308865,
+          "recall": 0.9885609671007781,
+          "status": "EVALUATED"
+        },
+        "Bot": {
+          "support": 60,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "DDoS": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS GoldenEye": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS Hulk": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS Slowhttptest": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS slowloris": {
+          "support": 1,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "FTP-Patator": {
+          "support": 3,
+          "detected": 1,
+          "recall": 0.3333333333333333,
+          "status": "EVALUATED"
+        },
+        "Heartbleed": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "Infiltration": {
+          "support": 3,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "PortScan": {
+          "support": 9,
+          "detected": 1,
+          "recall": 0.1111111111111111,
+          "status": "EVALUATED"
+        },
+        "SSH-Patator": {
+          "support": 11,
+          "detected": 2,
+          "recall": 0.18181818181818182,
+          "status": "EVALUATED"
+        },
+        "Web Attack - Brute Force": {
+          "support": 11,
+          "detected": 11,
+          "recall": 1.0,
+          "status": "EVALUATED"
+        },
+        "Web Attack - Sql Injection": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "Web Attack - XSS": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        }
+      }
+    },
+    "LSTM": {
+      "accuracy": 0.9843570521250284,
+      "balanced_accuracy": 0.6147434754774336,
+      "precision": 0.0049597024178549285,
+      "recall": 0.24489795918367346,
+      "f1_score": 0.009722503544662751,
+      "macro_f1": 0.5009193808631612,
+      "weighted_f1": 0.9918082159724033,
+      "pr_auc": 0.0020101902919302775,
+      "roc_auc": 0.6964287755500487,
+      "false_positive_rate": 0.015411008228806262,
+      "confusion_matrix": {
+        "tn": 307624,
+        "fp": 4815,
+        "fn": 74,
+        "tp": 24,
+        "matrix": [
+          [
+            307624,
+            4815
+          ],
+          [
+            74,
+            24
+          ]
+        ]
+      },
+      "threshold": 0.8397959183673469,
+      "total_samples": 312537,
+      "attack_samples": 98,
+      "normal_samples": 312439,
+      "per_class_support": {
+        "BENIGN": {
+          "support": 312439,
+          "detected": 307624,
+          "recall": 0.9845889917711937,
+          "status": "EVALUATED"
+        },
+        "Bot": {
+          "support": 60,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "DDoS": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS GoldenEye": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS Hulk": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS Slowhttptest": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS slowloris": {
+          "support": 1,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "FTP-Patator": {
+          "support": 3,
+          "detected": 1,
+          "recall": 0.3333333333333333,
+          "status": "EVALUATED"
+        },
+        "Heartbleed": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "Infiltration": {
+          "support": 3,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "PortScan": {
+          "support": 9,
+          "detected": 1,
+          "recall": 0.1111111111111111,
+          "status": "EVALUATED"
+        },
+        "SSH-Patator": {
+          "support": 11,
+          "detected": 11,
+          "recall": 1.0,
+          "status": "EVALUATED"
+        },
+        "Web Attack - Brute Force": {
+          "support": 11,
+          "detected": 11,
+          "recall": 1.0,
+          "status": "EVALUATED"
+        },
+        "Web Attack - Sql Injection": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "Web Attack - XSS": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        }
+      }
+    },
+    "Ensemble": {
+      "accuracy": 0.9813430089877359,
+      "balanced_accuracy": 0.5775328976869346,
+      "precision": 0.0029478064851742674,
+      "recall": 0.17346938775510204,
+      "f1_score": 0.005797101449275362,
+      "macro_f1": 0.4981901243290265,
+      "weighted_f1": 0.9902743548658408,
+      "pr_auc": 0.001583413046873379,
+      "roc_auc": 0.6952314152947144,
+      "false_positive_rate": 0.018403592381232816,
+      "confusion_matrix": {
+        "tn": 306689,
+        "fp": 5750,
+        "fn": 81,
+        "tp": 17,
+        "matrix": [
+          [
+            306689,
+            5750
+          ],
+          [
+            81,
+            17
+          ]
+        ]
+      },
+      "threshold": 0.8397959183673469,
+      "total_samples": 312537,
+      "attack_samples": 98,
+      "normal_samples": 312439,
+      "per_class_support": {
+        "BENIGN": {
+          "support": 312439,
+          "detected": 306689,
+          "recall": 0.9815964076187672,
+          "status": "EVALUATED"
+        },
+        "Bot": {
+          "support": 60,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "DDoS": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS GoldenEye": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS Hulk": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS Slowhttptest": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS slowloris": {
+          "support": 1,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "FTP-Patator": {
+          "support": 3,
+          "detected": 1,
+          "recall": 0.3333333333333333,
+          "status": "EVALUATED"
+        },
+        "Heartbleed": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "Infiltration": {
+          "support": 3,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "PortScan": {
+          "support": 9,
+          "detected": 3,
+          "recall": 0.3333333333333333,
+          "status": "EVALUATED"
+        },
+        "SSH-Patator": {
+          "support": 11,
+          "detected": 2,
+          "recall": 0.18181818181818182,
+          "status": "EVALUATED"
+        },
+        "Web Attack - Brute Force": {
+          "support": 11,
+          "detected": 11,
+          "recall": 1.0,
+          "status": "EVALUATED"
+        },
+        "Web Attack - Sql Injection": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "Web Attack - XSS": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        }
+      }
+    },
+    "IsolationForest": {
+      "accuracy": 0.998880132592301,
+      "balanced_accuracy": 0.4995967212799938,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1_score": 0.0,
+      "macro_f1": 0.4997198762973729,
+      "weighted_f1": 0.9991263653933768,
+      "pr_auc": 0.002350024472149351,
+      "roc_auc": 0.5697446508905476,
+      "false_positive_rate": 0.0008065574400122904,
+      "confusion_matrix": {
+        "tn": 312187,
+        "fp": 252,
+        "fn": 98,
+        "tp": 0,
+        "matrix": [
+          [
+            312187,
+            252
+          ],
+          [
+            98,
+            0
+          ]
+        ]
+      },
+      "threshold": 0.05,
+      "total_samples": 312537,
+      "attack_samples": 98,
+      "normal_samples": 312439,
+      "per_class_support": {
+        "BENIGN": {
+          "support": 312439,
+          "detected": 312187,
+          "recall": 0.9991934425599877,
+          "status": "EVALUATED"
+        },
+        "Bot": {
+          "support": 60,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "DDoS": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS GoldenEye": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS Hulk": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS Slowhttptest": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "DoS slowloris": {
+          "support": 1,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "FTP-Patator": {
+          "support": 3,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "Heartbleed": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "Infiltration": {
+          "support": 3,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "PortScan": {
+          "support": 9,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "SSH-Patator": {
+          "support": 11,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "Web Attack - Brute Force": {
+          "support": 11,
+          "detected": 0,
+          "recall": 0.0,
+          "status": "EVALUATED"
+        },
+        "Web Attack - Sql Injection": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        },
+        "Web Attack - XSS": {
+          "support": 0,
+          "detected": 0,
+          "recall": "N/A (0 test support)",
+          "status": "UNTESTED_IN_SPLIT"
+        }
+      }
+    }
+  }
+}

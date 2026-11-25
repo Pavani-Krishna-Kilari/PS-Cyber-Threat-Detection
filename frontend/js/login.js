@@ -1,9 +1,17 @@
 /**
- * AI-SIEM SOC - PREMIUM LOGIN CONTROLLER
- * Updated API integration for Render deployment
+ * AI-SIEM SOC - PREMIUM INTERACTIVE LOGIN CONTROLLER
+ * Pure Vanilla JavaScript ES6+ Module
+ * Handles:
+ *   1. Full-screen interactive particle network canvas
+ *   2. 3D digital wireframe cyber globe rendering
+ *   3. Credential validation & REST API authentication
+ *   4. Google Workspace SSO enterprise flow
+ *   5. Password recovery protocol modal
+ *   6. Contact administrator clearance ticket request
+ *   7. Show/Hide password toggle & Quick-fill demo credentials
  */
 
-const API_BASE = "https://ai-siem-soc.onrender.com";
+const API_BASE = "";
 
 document.addEventListener("DOMContentLoaded", () => {
   initParticleNetwork();
@@ -15,95 +23,25 @@ document.addEventListener("DOMContentLoaded", () => {
   checkRememberedUser();
 });
 
-// ============================================================
-// 1. CENTRAL API REQUEST HANDLER
-// ============================================================
-
-async function apiRequest(endpoint, options = {}) {
-  let response;
-
-  try {
-    response = await fetch(`${API_BASE}${endpoint}`, {
-      ...options,
-      headers: {
-        Accept: "application/json",
-        ...(options.body
-          ? { "Content-Type": "application/json" }
-          : {}),
-        ...options.headers
-      }
-    });
-  } catch (error) {
-    throw new Error(
-      "Cannot connect to the backend. Check backend availability and CORS configuration."
-    );
-  }
-
-  const contentType = response.headers.get("content-type") || "";
-  const rawText = await response.text();
-
-  let data = {};
-
-  if (rawText.trim()) {
-    try {
-      data = JSON.parse(rawText);
-    } catch {
-      if (!response.ok) {
-        throw new Error(
-          `Backend error (${response.status}). The server returned a non-JSON response.`
-        );
-      }
-
-      throw new Error(
-        `Invalid backend response. Expected JSON but received: ${rawText.slice(0, 120)}`
-      );
-    }
-  }
-
-  if (!response.ok) {
-    const detail =
-      data.detail ||
-      data.message ||
-      data.error ||
-      `Request failed with status ${response.status}`;
-
-    throw new Error(
-      typeof detail === "string" ? detail : JSON.stringify(detail)
-    );
-  }
-
-  if (!contentType.includes("application/json") && rawText.trim()) {
-    console.warn("Backend response has an unexpected Content-Type:", contentType);
-  }
-
-  return data;
-}
-
-// ============================================================
-// 2. PARTICLE NETWORK BACKGROUND
-// ============================================================
-
+// -----------------------------------------------------------------------------
+// 1. FULL-SCREEN INTERACTIVE NEURAL PARTICLE NETWORK CANVAS
+// -----------------------------------------------------------------------------
 function initParticleNetwork() {
   const canvas = document.getElementById("networkCanvas");
   if (!canvas) return;
-
   const ctx = canvas.getContext("2d");
-  if (!ctx) return;
 
-  let width = 0;
-  let height = 0;
+  let width = (canvas.width = window.innerWidth);
+  let height = (canvas.height = window.innerHeight);
 
-  function resize() {
+  window.addEventListener("resize", () => {
     width = canvas.width = window.innerWidth;
     height = canvas.height = window.innerHeight;
-  }
-
-  resize();
-  window.addEventListener("resize", resize);
+  });
 
   const mouse = { x: null, y: null, radius: 140 };
 
-  window.addEventListener("mousemove", e => {
+  window.addEventListener("mousemove", (e) => {
     mouse.x = e.clientX;
     mouse.y = e.clientY;
   });
@@ -113,14 +51,9 @@ function initParticleNetwork() {
     mouse.y = null;
   });
 
-  const colors = ["#00E5FF", "#8B35FF", "#287BFF", "#00B4D8"];
-
+  const particleCount = Math.min(Math.floor((width * height) / 18000), 75);
   const particles = [];
-
-  const particleCount = Math.min(
-    Math.floor((width * height) / 18000),
-    75
-  );
+  const colors = ["#00E5FF", "#8B35FF", "#287BFF", "#00b4d8"];
 
   for (let i = 0; i < particleCount; i++) {
     particles.push({
@@ -128,280 +61,350 @@ function initParticleNetwork() {
       y: Math.random() * height,
       vx: (Math.random() - 0.5) * 0.65,
       vy: (Math.random() - 0.5) * 0.65,
-      radius: Math.random() * 2 + 1,
-      color: colors[Math.floor(Math.random() * colors.length)]
+      radius: Math.random() * 2.2 + 1.2,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      alpha: Math.random() * 0.5 + 0.3
     });
   }
 
-  function animate() {
-    ctx.clearRect(0, 0, width, height);
+  // Animated packets traversing network edges
+  const packets = [];
+  function spawnPacket(p1, p2) {
+    packets.push({
+      p1, p2, progress: 0, speed: Math.random() * 0.015 + 0.01
+    });
+  }
 
-    particles.forEach((p, i) => {
+  let frameCount = 0;
+
+  function renderNetwork() {
+    ctx.clearRect(0, 0, width, height);
+    frameCount++;
+
+    // Update & draw particles
+    for (let i = 0; i < particles.length; i++) {
+      const p = particles[i];
+
       p.x += p.vx;
       p.y += p.vy;
 
       if (p.x < 0) p.x = width;
-      if (p.x > width) p.x = 0;
+      else if (p.x > width) p.x = 0;
       if (p.y < 0) p.y = height;
-      if (p.y > height) p.y = 0;
+      else if (p.y > height) p.y = 0;
 
-      if (mouse.x !== null) {
+      // Mouse attraction
+      if (mouse.x !== null && mouse.y !== null) {
         const dx = mouse.x - p.x;
         const dy = mouse.y - p.y;
-        const distance = Math.hypot(dx, dy);
-
-        if (distance > 0 && distance < mouse.radius) {
-          const force = (mouse.radius - distance) / mouse.radius;
-          p.x -= (dx / distance) * force * 1.5;
-          p.y -= (dy / distance) * force * 1.5;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < mouse.radius) {
+          const force = (mouse.radius - dist) / mouse.radius;
+          p.x -= (dx / dist) * force * 1.5;
+          p.y -= (dy / dist) * force * 1.5;
         }
       }
 
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
       ctx.fillStyle = p.color;
+      ctx.globalAlpha = p.alpha;
       ctx.shadowBlur = 8;
       ctx.shadowColor = p.color;
       ctx.fill();
       ctx.shadowBlur = 0;
+    }
 
+    // Connect nearby particles with glowing lines
+    const maxDistance = 135;
+    for (let i = 0; i < particles.length; i++) {
       for (let j = i + 1; j < particles.length; j++) {
-        const other = particles[j];
-        const distance = Math.hypot(
-          p.x - other.x,
-          p.y - other.y
-        );
+        const p1 = particles[i];
+        const p2 = particles[j];
+        const dx = p1.x - p2.x;
+        const dy = p1.y - p2.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
 
-        if (distance < 135) {
+        if (dist < maxDistance) {
+          const alpha = (1 - dist / maxDistance) * 0.22;
           ctx.beginPath();
-          ctx.moveTo(p.x, p.y);
-          ctx.lineTo(other.x, other.y);
-          ctx.strokeStyle = p.color;
-          ctx.globalAlpha = (1 - distance / 135) * 0.25;
+          ctx.moveTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
+          ctx.strokeStyle = p1.color;
+          ctx.globalAlpha = alpha;
           ctx.lineWidth = 1;
           ctx.stroke();
-          ctx.globalAlpha = 1;
+
+          // Occasionally spawn a telemetry packet
+          if (frameCount % 180 === 0 && Math.random() < 0.08 && packets.length < 15) {
+            spawnPacket(p1, p2);
+          }
         }
       }
-    });
+    }
 
-    if (mouse.x !== null) {
-      particles.forEach(p => {
-        const distance = Math.hypot(
-          mouse.x - p.x,
-          mouse.y - p.y
-        );
-
-        if (distance < 120) {
+    // Connect mouse to nearby particles
+    if (mouse.x !== null && mouse.y !== null) {
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        const dx = mouse.x - p.x;
+        const dy = mouse.y - p.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 120) {
+          const alpha = (1 - dist / 120) * 0.45;
           ctx.beginPath();
           ctx.moveTo(mouse.x, mouse.y);
           ctx.lineTo(p.x, p.y);
           ctx.strokeStyle = "#00E5FF";
-          ctx.globalAlpha = 0.4;
+          ctx.globalAlpha = alpha;
+          ctx.lineWidth = 1.2;
           ctx.stroke();
-          ctx.globalAlpha = 1;
         }
-      });
+      }
     }
 
-    requestAnimationFrame(animate);
+    // Render traveling telemetry packets
+    for (let i = packets.length - 1; i >= 0; i--) {
+      const pkt = packets[i];
+      pkt.progress += pkt.speed;
+      if (pkt.progress >= 1) {
+        packets.splice(i, 1);
+        continue;
+      }
+      const curX = pkt.p1.x + (pkt.p2.x - pkt.p1.x) * pkt.progress;
+      const curY = pkt.p1.y + (pkt.p2.y - pkt.p1.y) * pkt.progress;
+
+      ctx.beginPath();
+      ctx.arc(curX, curY, 2.8, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffffff";
+      ctx.globalAlpha = 0.9;
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = "#00E5FF";
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    ctx.globalAlpha = 1.0;
+    requestAnimationFrame(renderNetwork);
   }
 
-  requestAnimationFrame(animate);
+  requestAnimationFrame(renderNetwork);
 }
 
-// ============================================================
-// 3. CYBER GLOBE ANIMATION
-// ============================================================
-
+// -----------------------------------------------------------------------------
+// 2. 3D DIGITAL WIREFRAME CYBER GLOBE CANVAS
+// -----------------------------------------------------------------------------
 function initCyberGlobe() {
   const canvas = document.getElementById("globeCanvas");
   if (!canvas) return;
-
   const ctx = canvas.getContext("2d");
-  if (!ctx) return;
 
-  let width, height, cx, cy, radius;
-  let rotation = 0;
+  let rect = canvas.getBoundingClientRect();
+  let dpr = window.devicePixelRatio || 1;
+  let cx = rect.width / 2;
+  let cy = rect.height + 40;
+  let R = Math.min(rect.width * 0.65, 230);
 
-  function resize() {
-    const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-
-    width = rect.width;
-    height = rect.height;
-
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    cx = width / 2;
-    cy = height + 40;
-    radius = Math.min(width * 0.65, 230);
+  function resizeGlobe() {
+    rect = canvas.getBoundingClientRect();
+    dpr = window.devicePixelRatio || 1;
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.scale(dpr, dpr);
+    cx = rect.width / 2;
+    cy = rect.height + 40;
+    R = Math.min(rect.width * 0.65, 230);
   }
 
-  resize();
-  window.addEventListener("resize", resize);
+  resizeGlobe();
+  window.addEventListener("resize", resizeGlobe);
 
+  let rotation = 0;
+  let targetTilt = 0.22;
+  let currentTilt = 0.22;
+
+  // Key global threat telemetry hub nodes (latitude, longitude in radians)
   const hubs = [
-    [0.70, -1.29],
-    [0.90, -2.13],
-    [0.90, 0.00],
-    [0.62, 0.65],
-    [0.62, 1.35],
-    [0.61, 2.43],
-    [0.23, 1.81],
-    [-0.59, 2.64]
+    { lat: 0.70, lon: -1.29, name: "US-EAST" },
+    { lat: 0.90, lon: -2.13, name: "US-WEST" },
+    { lat: 0.90, lon: 0.00, name: "EU-CENTRAL" },
+    { lat: 0.62, lon: 0.65, name: "MIDEAST" },
+    { lat: 0.62, lon: 1.35, name: "ASIA-SOUTH" },
+    { lat: 0.61, lon: 2.43, name: "ASIA-EAST" },
+    { lat: 0.23, lon: 1.81, name: "ASIA-SE" },
+    { lat: -0.59, lon: 2.64, name: "OCEANIA" }
   ];
 
+  // Animated telemetry arcs connecting hubs
   const arcs = [
-    [0, 2], [2, 5], [1, 5], [2, 4]
+    { from: 0, to: 2, progress: 0.1, speed: 0.007 },
+    { from: 2, to: 5, progress: 0.4, speed: 0.009 },
+    { from: 1, to: 5, progress: 0.7, speed: 0.006 },
+    { from: 2, to: 4, progress: 0.25, speed: 0.008 }
   ];
 
-  function project(lat, lon) {
-    const x = radius * Math.cos(lat) * Math.sin(lon + rotation);
-    const y0 = -radius * Math.sin(lat);
-    const z = radius * Math.cos(lat) * Math.cos(lon + rotation);
+  function project(lat, lon, rot, tilt) {
+    const cosLat = Math.cos(lat);
+    const sinLat = Math.sin(lat);
+    const cosLon = Math.cos(lon + rot);
+    const sinLon = Math.sin(lon + rot);
+
+    // 3D coordinates on sphere
+    const x = R * cosLat * sinLon;
+    const y0 = -R * sinLat;
+    const z0 = R * cosLat * cosLon;
+
+    // Apply pitch tilt
+    const y = y0 * Math.cos(tilt) - z0 * Math.sin(tilt);
+    const z = y0 * Math.sin(tilt) + z0 * Math.cos(tilt);
 
     return {
       x: cx + x,
-      y: cy + y0 * Math.cos(0.22) - z * Math.sin(0.22),
-      z,
-      visible: z > -radius * 0.2
+      y: cy + y,
+      z: z,
+      visible: z > -R * 0.2
     };
   }
 
-  function animate() {
-    ctx.clearRect(0, 0, width, height);
+  function renderGlobe() {
+    ctx.clearRect(0, 0, rect.width, rect.height);
+
     rotation += 0.006;
+    currentTilt += (targetTilt - currentTilt) * 0.05;
 
-    const gradient = ctx.createRadialGradient(
-      cx, cy, radius * 0.7,
-      cx, cy, radius * 1.1
-    );
+    // Outer atmospheric rim glow
+    const rimGrad = ctx.createRadialGradient(cx, cy, R * 0.75, cx, cy, R * 1.08);
+    rimGrad.addColorStop(0, "rgba(0, 229, 255, 0.0)");
+    rimGrad.addColorStop(0.85, "rgba(0, 229, 255, 0.12)");
+    rimGrad.addColorStop(1, "rgba(139, 53, 255, 0.0)");
 
-    gradient.addColorStop(0, "rgba(0,229,255,0)");
-    gradient.addColorStop(0.85, "rgba(0,229,255,0.12)");
-    gradient.addColorStop(1, "rgba(139,53,255,0)");
-
-    ctx.fillStyle = gradient;
+    ctx.fillStyle = rimGrad;
     ctx.beginPath();
-    ctx.arc(cx, cy, radius * 1.1, 0, Math.PI * 2);
+    ctx.arc(cx, cy, R * 1.1, 0, Math.PI * 2);
     ctx.fill();
 
-    // Latitude lines
-    [-0.8, -0.4, 0, 0.4, 0.8].forEach(lat => {
+    // 1. Draw Latitude Rings
+    const latAngles = [-0.8, -0.4, 0, 0.4, 0.8];
+    for (const lat of latAngles) {
       ctx.beginPath();
       let started = false;
-
-      for (let lon = 0; lon <= Math.PI * 2; lon += 0.15) {
-        const p = project(lat, lon);
-
-        if (p.visible) {
+      for (let lon = 0; lon <= Math.PI * 2 + 0.1; lon += 0.15) {
+        const pt = project(lat, lon, rotation, currentTilt);
+        if (pt.visible) {
           if (!started) {
-            ctx.moveTo(p.x, p.y);
+            ctx.moveTo(pt.x, pt.y);
             started = true;
           } else {
-            ctx.lineTo(p.x, p.y);
+            ctx.lineTo(pt.x, pt.y);
           }
         } else {
           started = false;
         }
       }
-
-      ctx.strokeStyle = "rgba(0,229,255,0.22)";
-      ctx.stroke();
-    });
-
-    // Longitude lines
-    for (let i = 0; i < 12; i++) {
-      ctx.beginPath();
-      let started = false;
-      const lon = i * Math.PI / 6;
-
-      for (let lat = -Math.PI / 2; lat <= Math.PI / 2; lat += 0.12) {
-        const p = project(lat, lon);
-
-        if (p.visible) {
-          if (!started) {
-            ctx.moveTo(p.x, p.y);
-            started = true;
-          } else {
-            ctx.lineTo(p.x, p.y);
-          }
-        } else {
-          started = false;
-        }
-      }
-
-      ctx.strokeStyle = "rgba(40,123,255,0.18)";
+      ctx.strokeStyle = lat === 0 ? "rgba(0, 229, 255, 0.35)" : "rgba(0, 229, 255, 0.14)";
+      ctx.lineWidth = lat === 0 ? 1.5 : 0.8;
       ctx.stroke();
     }
 
-    const points = hubs.map(h => project(h[0], h[1]));
-
-    // Network hubs
-    points.forEach((p, i) => {
-      if (!p.visible || p.z <= 0) return;
-
-      const pulse = 4 + (Math.sin(rotation * 5 + i) + 1) * 2.5;
-
+    // 2. Draw Longitude Meridians
+    const meridians = 12;
+    for (let m = 0; m < meridians; m++) {
+      const lon = (m * Math.PI * 2) / meridians;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, pulse, 0, Math.PI * 2);
-      ctx.strokeStyle = "#00E5FF";
+      let started = false;
+      for (let lat = -Math.PI / 2; lat <= Math.PI / 2; lat += 0.12) {
+        const pt = project(lat, lon, rotation, currentTilt);
+        if (pt.visible) {
+          if (!started) {
+            ctx.moveTo(pt.x, pt.y);
+            started = true;
+          } else {
+            ctx.lineTo(pt.x, pt.y);
+          }
+        } else {
+          started = false;
+        }
+      }
+      ctx.strokeStyle = "rgba(40, 123, 255, 0.16)";
+      ctx.lineWidth = 0.8;
       ctx.stroke();
+    }
 
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
-      ctx.fillStyle = "#FFFFFF";
-      ctx.shadowBlur = 10;
-      ctx.shadowColor = "#00E5FF";
-      ctx.fill();
-      ctx.shadowBlur = 0;
-    });
+    // 3. Draw Hub Nodes
+    const projectedHubs = hubs.map(h => project(h.lat, h.lon, rotation, currentTilt));
 
-    // Traveling telemetry arcs
-    arcs.forEach((arc, i) => {
-      const p1 = points[arc[0]];
-      const p2 = points[arc[1]];
+    for (let i = 0; i < projectedHubs.length; i++) {
+      const pt = projectedHubs[i];
+      if (pt.visible && pt.z > 0) {
+        const alpha = Math.min(1.0, (pt.z / R) * 1.2);
 
-      if (!p1.visible || !p2.visible) return;
+        // Pulsing radar ring
+        ctx.beginPath();
+        const pulseSize = 4 + (Math.sin(rotation * 5 + i) + 1) * 2.5;
+        ctx.arc(pt.x, pt.y, pulseSize, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(0, 229, 255, ${alpha * 0.6})`;
+        ctx.lineWidth = 1;
+        ctx.stroke();
 
-      const t = (rotation * (0.12 + i * 0.015)) % 1;
-      const midX = (p1.x + p2.x) / 2;
-      const midY = (p1.y + p2.y) / 2 - 25;
+        // Center beacon dot
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffffff";
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = "#00E5FF";
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    }
 
-      ctx.beginPath();
-      ctx.moveTo(p1.x, p1.y);
-      ctx.quadraticCurveTo(midX, midY, p2.x, p2.y);
-      ctx.strokeStyle = "rgba(139,53,255,0.35)";
-      ctx.stroke();
+    // 4. Draw Traveling Arcs
+    for (const arc of arcs) {
+      const p1 = projectedHubs[arc.from];
+      const p2 = projectedHubs[arc.to];
 
-      const x = (1-t)*(1-t)*p1.x + 2*(1-t)*t*midX + t*t*p2.x;
-      const y = (1-t)*(1-t)*p1.y + 2*(1-t)*t*midY + t*t*p2.y;
+      if (p1.visible && p2.visible && (p1.z > -10 || p2.z > -10)) {
+        arc.progress = (arc.progress + arc.speed) % 1.0;
 
-      ctx.beginPath();
-      ctx.arc(x, y, 3, 0, Math.PI * 2);
-      ctx.fillStyle = "#00E5FF";
-      ctx.shadowBlur = 10;
-      ctx.shadowColor = "#00E5FF";
-      ctx.fill();
-      ctx.shadowBlur = 0;
-    });
+        // Elevated control point for 3D curved arc
+        const midX = (p1.x + p2.x) / 2;
+        const midY = (p1.y + p2.y) / 2 - 25;
 
-    requestAnimationFrame(animate);
+        // Draw faint base arc line
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.quadraticCurveTo(midX, midY, p2.x, p2.y);
+        ctx.strokeStyle = "rgba(139, 53, 255, 0.25)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Draw animated traveling projectile packet
+        const t = arc.progress;
+        const arcX = (1 - t) * (1 - t) * p1.x + 2 * (1 - t) * t * midX + t * t * p2.x;
+        const arcY = (1 - t) * (1 - t) * p1.y + 2 * (1 - t) * t * midY + t * t * p2.y;
+
+        ctx.beginPath();
+        ctx.arc(arcX, arcY, 3, 0, Math.PI * 2);
+        ctx.fillStyle = "#00E5FF";
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = "#00E5FF";
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    requestAnimationFrame(renderGlobe);
   }
 
-  requestAnimationFrame(animate);
+  requestAnimationFrame(renderGlobe);
 }
 
-// ============================================================
-// 4. INPUT INTERACTIONS
-// ============================================================
-
+// -----------------------------------------------------------------------------
+// 3. INPUT FOCUS & INTERACTIVE UI ENHANCEMENTS
+// -----------------------------------------------------------------------------
 function initInputInteractions() {
-  document.querySelectorAll(".form-input").forEach(input => {
+  const inputs = document.querySelectorAll(".form-input");
+  inputs.forEach(input => {
     const container = input.closest(".input-container");
     if (!container) return;
 
@@ -415,49 +418,49 @@ function initInputInteractions() {
   });
 }
 
-// ============================================================
-// 5. PASSWORD TOGGLE
-// ============================================================
-
+// -----------------------------------------------------------------------------
+// 4. SHOW / HIDE PASSWORD TOGGLE
+// -----------------------------------------------------------------------------
 function initPasswordToggle() {
-  const button = document.getElementById("btnTogglePassword");
-  const password = document.getElementById("inputPassword");
-  const eye = document.getElementById("iconEye");
-  const eyeOff = document.getElementById("iconEyeOff");
+  const btnToggle = document.getElementById("btnTogglePassword");
+  const inputPw = document.getElementById("inputPassword");
+  const iconEye = document.getElementById("iconEye");
+  const iconEyeOff = document.getElementById("iconEyeOff");
 
-  if (!button || !password) return;
+  if (!btnToggle || !inputPw) return;
 
-  button.addEventListener("click", () => {
-    const show = password.type === "password";
-
-    password.type = show ? "text" : "password";
-
-    if (eye) eye.style.display = show ? "none" : "block";
-    if (eyeOff) eyeOff.style.display = show ? "block" : "none";
-
-    button.title = show ? "Hide Password" : "Show Password";
-    password.focus();
+  btnToggle.addEventListener("click", () => {
+    const isPw = inputPw.getAttribute("type") === "password";
+    if (isPw) {
+      inputPw.setAttribute("type", "text");
+      if (iconEye) iconEye.style.display = "none";
+      if (iconEyeOff) iconEyeOff.style.display = "block";
+      btnToggle.setAttribute("title", "Hide Password");
+    } else {
+      inputPw.setAttribute("type", "password");
+      if (iconEye) iconEye.style.display = "block";
+      if (iconEyeOff) iconEyeOff.style.display = "none";
+      btnToggle.setAttribute("title", "Show Password");
+    }
+    inputPw.focus();
   });
 }
 
-// ============================================================
-// 6. ALERT HANDLING
-// ============================================================
-
+// -----------------------------------------------------------------------------
+// 5. LOGIN FORM VALIDATION & REST API AUTHENTICATION
+// -----------------------------------------------------------------------------
 function showAlert(message, type = "error") {
   const box = document.getElementById("alertBox");
-  const msg = document.getElementById("alertMessage");
-  const icon = document.getElementById("alertIcon");
-
-  if (!box || !msg) return;
+  const msgEl = document.getElementById("alertMessage");
+  const iconEl = document.getElementById("alertIcon");
+  if (!box || !msgEl) return;
 
   box.className = `alert-box ${type} show`;
-  msg.textContent = message;
-
-  if (icon) {
-    icon.textContent =
-      type === "error" ? "⛔" :
-      type === "success" ? "🛡️" : "ℹ️";
+  msgEl.innerText = message;
+  if (iconEl) {
+    if (type === "error") iconEl.innerText = "⛔";
+    else if (type === "success") iconEl.innerText = "🛡️";
+    else iconEl.innerText = "ℹ️";
   }
 }
 
@@ -466,159 +469,178 @@ function hideAlert() {
   if (box) box.className = "alert-box";
 }
 
-function setBtnLoading(loading) {
-  const button = document.getElementById("btnLogin");
-  const text = document.getElementById("btnLoginText");
-  const spinner = document.getElementById("btnLoginSpinner");
+function setBtnLoading(isLoading) {
+  const btn = document.getElementById("btnLogin");
+  const textEl = document.getElementById("btnLoginText");
+  const spinEl = document.getElementById("btnLoginSpinner");
+  if (!btn) return;
 
-  if (!button) return;
-
-  button.disabled = loading;
-
-  if (text) text.style.display = loading ? "none" : "flex";
-  if (spinner) spinner.style.display = loading ? "block" : "none";
+  btn.disabled = isLoading;
+  if (textEl) textEl.style.display = isLoading ? "none" : "flex";
+  if (spinEl) spinEl.style.display = isLoading ? "block" : "none";
 }
-
-// ============================================================
-// 7. LOGIN AUTHENTICATION
-// ============================================================
-
-let isTransitioning = false;
 
 function initLoginForm() {
   const form = document.getElementById("loginForm");
   const emailInput = document.getElementById("inputEmail");
-  const passwordInput = document.getElementById("inputPassword");
-  const rememberCheckbox = document.getElementById("checkRememberMe");
-  const quickFill = document.getElementById("btnQuickFill");
+  const pwInput = document.getElementById("inputPassword");
+  const remCheckbox = document.getElementById("checkRememberMe");
+  const quickFillBtn = document.getElementById("btnQuickFill");
+  const quickFillAnalystBtn = document.getElementById("btnQuickFillAnalyst");
 
-  if (quickFill) {
-    quickFill.addEventListener("click", () => {
-      if (emailInput) emailInput.value = "admin@soc.ai";
-
-      if (passwordInput) {
-        passwordInput.value = "";
+  // Restrict demo credentials bar: only show if backend explicitly allows demo accounts and not in production
+  fetch("/api/auth/config")
+    .then(r => r.json())
+    .then(cfg => {
+      const demoBar = document.getElementById("demoCredentialsBar");
+      if (demoBar && (!cfg.demo_mode || cfg.is_production)) {
+        demoBar.style.display = "none";
       }
+    })
+    .catch(() => {});
 
-      showAlert(
-        "Enter your authorized account password to continue.",
-        "info"
-      );
+  // Quick-Fill Head of SOC Demo Credentials Button
+  if (quickFillBtn) {
+    quickFillBtn.addEventListener("click", () => {
+      emailInput.value = "admin@soc.ai";
+      pwInput.value = "CyberShield2026!";
+      showAlert("Demo credentials populated: admin@soc.ai (Head of SOC)", "info");
+      emailInput.closest(".input-container")?.classList.add("focused");
+      setTimeout(() => {
+        emailInput.closest(".input-container")?.classList.remove("focused");
+      }, 600);
     });
   }
 
-  if (!form || !emailInput || !passwordInput) return;
+  // Quick-Fill Regular Security Analyst Demo Credentials Button
+  if (quickFillAnalystBtn) {
+    quickFillAnalystBtn.addEventListener("click", () => {
+      emailInput.value = "analyst@soc.ai";
+      pwInput.value = "ThreatHunter2026!";
+      showAlert("Demo credentials populated: analyst@soc.ai (Regular Security Analyst)", "info");
+      emailInput.closest(".input-container")?.classList.add("focused");
+      setTimeout(() => {
+        emailInput.closest(".input-container")?.classList.remove("focused");
+      }, 600);
+    });
+  }
 
-  form.addEventListener("submit", async event => {
-    event.preventDefault();
+  if (!form) return;
 
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
     if (isTransitioning) return;
-
     hideAlert();
 
     const email = emailInput.value.trim();
-    const password = passwordInput.value;
-    const rememberMe = rememberCheckbox?.checked || false;
+    const password = pwInput.value;
+    const rememberMe = remCheckbox ? remCheckbox.checked : false;
 
+    // Client-side validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-    if (!emailRegex.test(email)) {
-      showAlert("Please enter a valid email address.");
+    if (!email || !emailRegex.test(email)) {
+      showAlert("Please enter a valid SOC operator work email address.");
       emailInput.focus();
       return;
     }
 
     if (!password) {
-      showAlert("Please enter your password.");
-      passwordInput.focus();
+      showAlert("Please enter your security access password.");
+      pwInput.focus();
       return;
     }
 
     setBtnLoading(true);
 
     try {
-      const data = await apiRequest("/api/auth/login", {
+      const resp = await fetch(`${API_BASE}/api/auth/login`, {
         method: "POST",
-        body: JSON.stringify({
-          email,
-          password,
-          remember_me: rememberMe
-        })
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, remember_me: rememberMe })
       });
 
-      if (!data.session_token) {
-        throw new Error(
-          "Login response did not contain a session token. Check the backend response format."
-        );
+      const data = await resp.json();
+
+      if (!resp.ok) {
+        throw new Error(data.detail || data.message || "Authentication failed.");
       }
 
-      const storage = rememberMe ? localStorage : sessionStorage;
-
-      storage.setItem("siem_auth_token", data.session_token);
-      storage.setItem("siem_operator", JSON.stringify(data.user || {}));
-
+      // Success: store session
       if (rememberMe) {
+        localStorage.setItem("siem_auth_token", data.session_token);
+        localStorage.setItem("siem_operator", JSON.stringify(data.user));
         localStorage.setItem("siem_remembered_email", email);
       } else {
-        localStorage.removeItem("siem_remembered_email");
+        sessionStorage.setItem("siem_auth_token", data.session_token);
+        sessionStorage.setItem("siem_operator", JSON.stringify(data.user));
         localStorage.removeItem("siem_auth_token");
-        localStorage.removeItem("siem_operator");
       }
 
-      showAlert(
-        data.message || "Authentication successful. Welcome to AI-SIEM SOC.",
-        "success"
-      );
+      showAlert(data.message || "Security clearance granted. Initiating secure SOC transition...", "success");
 
+      // Play exact 3-second reference transition animation and redirect automatically on ended
       playSuccessTransitionAndRedirect();
 
-    } catch (error) {
-      console.error("Login error:", error);
-      showAlert(error.message || "Authentication failed.");
+    } catch (err) {
+      showAlert(err.message || "Security clearance verification failed.");
       setBtnLoading(false);
     }
   });
 }
 
-// ============================================================
-// 8. SUCCESS TRANSITION
-// ============================================================
+let isTransitioning = false;
 
 function playSuccessTransitionAndRedirect() {
   if (isTransitioning) return;
   isTransitioning = true;
 
-  const card = document.querySelector(".login-glass-card");
+  const glassCard = document.querySelector(".login-glass-card");
   const overlay = document.getElementById("loginSuccessOverlay");
   const video = document.getElementById("loginSuccessVideo");
-  const stage = document.getElementById("dashboardStage");
-  const frame = document.getElementById("dashboardStageFrame");
+  const stageContainer = document.getElementById("dashboardStage");
+  const stageFrame = document.getElementById("dashboardStageFrame");
 
-  if (card) {
-    card.style.transition = "all 0.35s ease";
-    card.style.opacity = "0";
-    card.style.transform = "scale(0.96)";
+  // Smoothly fade out the login card
+  if (glassCard) {
+    glassCard.style.opacity = "0";
+    glassCard.style.transform = "scale(0.96)";
+    glassCard.style.transition = "all 0.35s ease-out";
   }
 
-  let dashboardLoaded = false;
-  let finalized = false;
-  let fallbackTimer;
-  let fadeTimer;
+  let isDashboardLoaded = false;
+  let isFadeThresholdReached = false;
+  let hasRevealed = false;
+  let hasFinalized = false;
+  let rafId = null;
 
-  function reveal() {
-    if (stage) stage.classList.add("revealed");
-    if (overlay) overlay.classList.add("cinematic-fade-out");
+  // Reveal the dashboard underneath the fading video
+  function revealDashboard() {
+    if (hasRevealed) return;
+    hasRevealed = true;
+
+    // 1. Gradually fade the video overlay out with subtle blur and gentle expansion
+    if (overlay) {
+      overlay.classList.add("cinematic-fade-out");
+    }
+
+    // 2. Make the fully-loaded dashboard appear underneath with smooth opacity transition
+    if (stageContainer) {
+      stageContainer.classList.add("revealed");
+    }
   }
 
-  function finalize() {
-    if (finalized) return;
-    finalized = true;
+  // Finalize transition when video playback concludes
+  function finalizeTransition() {
+    if (hasFinalized) return;
+    hasFinalized = true;
 
     clearTimeout(fallbackTimer);
     clearTimeout(fadeTimer);
+    if (rafId) cancelAnimationFrame(rafId);
 
-    reveal();
+    revealDashboard();
 
+    // Clean up overlay visibility after fade-out transition concludes
     setTimeout(() => {
       if (overlay) {
         overlay.classList.remove("active");
@@ -628,367 +650,428 @@ function playSuccessTransitionAndRedirect() {
       }
     }, 400);
 
-    if (stage) stage.style.pointerEvents = "all";
+    // Enable interactive pointer events on dashboard stage
+    if (stageContainer) {
+      stageContainer.classList.add("revealed");
+      stageContainer.style.pointerEvents = "all";
+    }
 
+    // Seamlessly synchronize address bar to / without triggering browser page reload
     try {
       window.history.replaceState({}, document.title, "/");
-      frame?.contentWindow?.focus();
-    } catch (error) {
-      console.warn("Transition cleanup:", error);
-    }
+      if (stageFrame && stageFrame.contentWindow) {
+        stageFrame.contentWindow.focus();
+      }
+    } catch (_) {}
   }
 
-  function fallback() {
-    if (dashboardLoaded) {
-      finalize();
+  // Graceful fallback if video playback encounters decode errors or autoplay restriction
+  function handlePlaybackFallback() {
+    clearTimeout(fallbackTimer);
+    clearTimeout(fadeTimer);
+    if (rafId) cancelAnimationFrame(rafId);
+
+    if (isDashboardLoaded && stageContainer) {
+      revealDashboard();
+      finalizeTransition();
     } else {
       window.location.replace("/");
     }
   }
 
-  if (frame) {
-    frame.addEventListener("load", () => {
-      dashboardLoaded = true;
-      stage?.classList.add("loaded");
+  // Preload the authenticated dashboard in stage iframe (ensures dashboard is loaded before reveal)
+  if (stageFrame) {
+    stageFrame.addEventListener("load", () => {
+      isDashboardLoaded = true;
+      if (stageContainer) {
+        stageContainer.classList.add("loaded");
+      }
+      // If playback already reached the final 300-400ms threshold, reveal now
+      if (isFadeThresholdReached && !hasRevealed) {
+        revealDashboard();
+      }
     }, { once: true });
 
-    frame.src = "/";
+    stageFrame.src = "/";
   }
 
-  fallbackTimer = setTimeout(fallback, 8000);
-  fadeTimer = setTimeout(() => {
-    if (dashboardLoaded) reveal();
+  // Safety fallback timer (2.6s maximum) ensures user is never stranded
+  const fallbackTimer = setTimeout(handlePlaybackFallback, 2600);
+
+  // Synchronized fade timer (triggers fade at ~1620ms, final 380ms of 2.0s video)
+  const fadeTimer = setTimeout(() => {
+    isFadeThresholdReached = true;
+    if (isDashboardLoaded && !hasRevealed) {
+      revealDashboard();
+    }
   }, 1620);
 
   if (overlay && video) {
+    overlay.classList.remove("cinematic-fade-out");
     overlay.style.display = "flex";
     overlay.classList.add("active");
     overlay.setAttribute("aria-hidden", "false");
-
     video.currentTime = 0;
     video.loop = false;
 
-    video.onended = finalize;
-    video.onerror = fallback;
+    // Precise progress monitoring for the final 300-400ms (1.62s threshold)
+    const FADE_THRESHOLD = 1.62;
+
+    function checkVideoProgress() {
+      if (video.currentTime >= FADE_THRESHOLD && !isFadeThresholdReached) {
+        isFadeThresholdReached = true;
+        if (isDashboardLoaded && !hasRevealed) {
+          revealDashboard();
+        }
+      }
+      if (!hasFinalized) {
+        rafId = requestAnimationFrame(checkVideoProgress);
+      }
+    }
+    rafId = requestAnimationFrame(checkVideoProgress);
+
+    video.addEventListener("timeupdate", () => {
+      if (video.currentTime >= FADE_THRESHOLD && !isFadeThresholdReached) {
+        isFadeThresholdReached = true;
+        if (isDashboardLoaded && !hasRevealed) {
+          revealDashboard();
+        }
+      }
+    });
+
+    // Coordinated ended event
+    video.addEventListener("ended", () => {
+      if (isDashboardLoaded) {
+        finalizeTransition();
+      } else {
+        // Wait briefly for dashboard to complete loading
+        const waitTimer = setTimeout(finalizeTransition, 450);
+        stageFrame?.addEventListener("load", () => {
+          clearTimeout(waitTimer);
+          finalizeTransition();
+        }, { once: true });
+      }
+    }, { once: true });
+
+    video.addEventListener("error", () => {
+      handlePlaybackFallback();
+    }, { once: true });
 
     const playPromise = video.play();
-
-    if (playPromise) {
-      playPromise.catch(() => fallback());
+    if (playPromise !== undefined) {
+      playPromise.catch((err) => {
+        console.warn("Autoplay was prevented or video failed to play:", err);
+        handlePlaybackFallback();
+      });
     }
   } else {
-    fallback();
+    handlePlaybackFallback();
   }
 }
-
-// ============================================================
-// 9. REMEMBERED EMAIL
-// ============================================================
 
 function checkRememberedUser() {
   const remembered = localStorage.getItem("siem_remembered_email");
   const emailInput = document.getElementById("inputEmail");
-
   if (remembered && emailInput) {
     emailInput.value = remembered;
   }
 }
 
-// ============================================================
-// 10. MODAL CONTROLS
-// ============================================================
-
+// -----------------------------------------------------------------------------
+// 6. MODALS CONTROLLER (FORGOT PASSWORD, CONTACT ADMIN, GOOGLE SSO)
+// -----------------------------------------------------------------------------
 function initModals() {
+  // Modal Elements
   const modalForgot = document.getElementById("modalForgotPassword");
   const modalContact = document.getElementById("modalContactAdmin");
   const modalGoogle = document.getElementById("modalGoogleSSO");
 
-  function openModal(modal) {
-    modal?.classList.add("open");
-  }
-
-  function closeModal(modal) {
-    modal?.classList.remove("open");
-  }
-
-  function showResult(element, message, type = "error") {
-    if (!element) return;
-
-    element.className = `alert-box ${type} show`;
-    element.textContent = message;
-  }
-
-  // Modal opening
-  document.getElementById("linkForgotPassword")?.addEventListener("click", e => {
+  // Triggers
+  document.getElementById("linkForgotPassword")?.addEventListener("click", (e) => {
     e.preventDefault();
     openModal(modalForgot);
   });
 
-  document.getElementById("linkContactAdmin")?.addEventListener("click", e => {
+  document.getElementById("linkContactAdmin")?.addEventListener("click", (e) => {
     e.preventDefault();
     openModal(modalContact);
   });
 
-  document.getElementById("btnGoogleLogin")?.addEventListener("click", async () => {
+  document.getElementById("btnGoogleLogin")?.addEventListener("click", () => {
     openModal(modalGoogle);
-
-    const badge = document.getElementById("googleConfigBadgeText");
-    const description = document.getElementById("googleModalDescription");
-    const confirm = document.getElementById("btnConfirmGoogleSSO");
-
-    if (badge) badge.textContent = "Checking Google OAuth configuration...";
-
-    try {
-      const data = await apiRequest("/api/auth/oauth/google/url");
-
-      if (data.is_configured && data.auth_url) {
-        if (badge) badge.textContent = "OAuth 2.0: Connected";
-
-        if (description) {
-          description.textContent = "Google sign-in is configured.";
-        }
-
-        if (confirm) {
-          confirm.textContent = "Proceed to Google Sign-In";
-          confirm.onclick = () => {
-            window.location.href = data.auth_url;
-          };
-        }
-      } else {
-        if (badge) badge.textContent = "Google OAuth is not configured";
-
-        if (description) {
-          description.textContent =
-            "Google sign-in is currently unavailable. Use your authorized email and password.";
-        }
-
-        if (confirm) confirm.disabled = true;
-      }
-    } catch (error) {
-      if (badge) badge.textContent = error.message;
-    }
   });
 
-  // Modal close buttons
-  const closeButtons = [
-    ["btnCloseForgotModal", modalForgot],
-    ["btnCancelForgot", modalForgot],
-    ["btnCloseContactModal", modalContact],
-    ["btnCancelContact", modalContact],
-    ["btnCloseGoogleModal", modalGoogle],
-    ["btnCancelGoogle", modalGoogle]
-  ];
+  // Close Buttons
+  document.getElementById("btnCloseForgotModal")?.addEventListener("click", () => closeModal(modalForgot));
+  document.getElementById("btnCancelForgot")?.addEventListener("click", () => closeModal(modalForgot));
 
-  closeButtons.forEach(([id, modal]) => {
-    document.getElementById(id)?.addEventListener("click", () => {
-      closeModal(modal);
+  document.getElementById("btnCloseContactModal")?.addEventListener("click", () => closeModal(modalContact));
+  document.getElementById("btnCancelContact")?.addEventListener("click", () => closeModal(modalContact));
+
+  document.getElementById("btnCloseGoogleModal")?.addEventListener("click", () => closeModal(modalGoogle));
+  document.getElementById("btnCancelGoogle")?.addEventListener("click", () => closeModal(modalGoogle));
+
+  // Backdrop click closes modal
+  [modalForgot, modalContact, modalGoogle].forEach(m => {
+    if (!m) return;
+    m.addEventListener("click", (e) => {
+      if (e.target === m) closeModal(m);
     });
   });
 
-  [modalForgot, modalContact, modalGoogle].forEach(modal => {
-    modal?.addEventListener("click", e => {
-      if (e.target === modal) closeModal(modal);
-    });
-  });
+  function openModal(m) {
+    if (m) m.classList.add("open");
+  }
 
-  // ==========================================================
-  // 11. FORGOT PASSWORD
-  // ==========================================================
+  function closeModal(m) {
+    if (m) m.classList.remove("open");
+  }
 
+  // --- 1. Forgot Password & Reset Lifecycle ---
   document.getElementById("btnSubmitForgot")?.addEventListener("click", async () => {
     const email = document.getElementById("inputForgotEmail")?.value.trim();
-    const result = document.getElementById("forgotResultBox");
-    const button = document.getElementById("btnSubmitForgot");
+    const resultBox = document.getElementById("forgotResultBox");
+    const submitBtn = document.getElementById("btnSubmitForgot");
     const resetStep = document.getElementById("resetPasswordStep");
-    const tokenInput = document.getElementById("inputResetToken");
+    const resetTokenInput = document.getElementById("inputResetToken");
 
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      showResult(result, "Please enter a valid email address.");
+      if (resultBox) {
+        resultBox.className = "alert-box error show";
+        resultBox.innerText = "Please enter a valid work email address.";
+      }
       return;
     }
 
-    button.disabled = true;
+    if (submitBtn) submitBtn.disabled = true;
 
     try {
-      const data = await apiRequest("/api/auth/forgot-password", {
+      const resp = await fetch(`${API_BASE}/api/auth/forgot-password`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email })
       });
+      const data = await resp.json();
 
-      showResult(
-        result,
-        data.message || "Password recovery request submitted.",
-        "success"
-      );
+      if (!resp.ok) throw new Error(data.detail || "Dispatch failed.");
 
-      if (resetStep && data.recovery_token) {
-        resetStep.style.display = "block";
-        if (tokenInput) tokenInput.value = data.recovery_token;
+      if (resultBox) {
+        resultBox.className = "alert-box success show";
+        resultBox.innerHTML = `
+          <div>
+            <strong>✓ Recovery Protocol Dispatched:</strong><br>
+            ${data.message}<br>
+            ${data.recovery_token ? `<em>(Dev Mode Token: <code>${data.recovery_token}</code>)</em>` : ''}
+          </div>
+        `;
       }
+      if (submitBtn) submitBtn.innerText = "Dispatched";
 
-      button.textContent = "Request Submitted";
-
-    } catch (error) {
-      showResult(result, error.message);
-      button.disabled = false;
+      // Reveal step 2: apply new password with token
+      if (resetStep) {
+        resetStep.style.display = "block";
+        if (data.recovery_token && resetTokenInput) {
+          resetTokenInput.value = data.recovery_token;
+        }
+      }
+    } catch (err) {
+      if (resultBox) {
+        resultBox.className = "alert-box error show";
+        resultBox.innerText = err.message;
+      }
+      if (submitBtn) submitBtn.disabled = false;
     }
   });
 
-  // ==========================================================
-  // 12. RESET PASSWORD
-  // ==========================================================
-
+  // Step 2: Apply new password with token
   document.getElementById("btnApplyNewPassword")?.addEventListener("click", async () => {
     const token = document.getElementById("inputResetToken")?.value.trim();
-    const password = document.getElementById("inputNewPassword")?.value;
-    const result = document.getElementById("forgotResultBox");
-    const button = document.getElementById("btnApplyNewPassword");
+    const newPassword = document.getElementById("inputNewPassword")?.value;
+    const resultBox = document.getElementById("forgotResultBox");
+    const applyBtn = document.getElementById("btnApplyNewPassword");
 
     if (!token) {
-      showResult(result, "Please enter the recovery token.");
+      if (resultBox) {
+        resultBox.className = "alert-box error show";
+        resultBox.innerText = "Please enter your recovery authorization token.";
+      }
       return;
     }
 
-    if (!password || password.length < 8) {
-      showResult(result, "Password must contain at least 8 characters.");
+    if (!newPassword || newPassword.length < 8) {
+      if (resultBox) {
+        resultBox.className = "alert-box error show";
+        resultBox.innerText = "New password must be at least 8 characters long.";
+      }
       return;
     }
 
-    button.disabled = true;
+    if (applyBtn) applyBtn.disabled = true;
 
     try {
-      const data = await apiRequest("/api/auth/reset-password", {
+      const resp = await fetch(`${API_BASE}/api/auth/reset-password`, {
         method: "POST",
-        body: JSON.stringify({
-          token,
-          new_password: password
-        })
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, new_password: newPassword })
       });
+      const data = await resp.json();
 
-      showResult(
-        result,
-        data.message || "Password updated successfully.",
-        "success"
-      );
+      if (!resp.ok) throw new Error(data.detail || "Password reset failed.");
 
+      if (resultBox) {
+        resultBox.className = "alert-box success show";
+        resultBox.innerHTML = `<div><strong>✓ Password Updated:</strong> ${data.message}</div>`;
+      }
+
+      // Prepopulate login form
       const loginEmail = document.getElementById("inputEmail");
-      const loginPassword = document.getElementById("inputPassword");
-
+      const loginPw = document.getElementById("inputPassword");
       if (loginEmail && data.email) loginEmail.value = data.email;
-      if (loginPassword) loginPassword.value = "";
+      if (loginPw) loginPw.value = newPassword;
 
       setTimeout(() => {
         closeModal(modalForgot);
-        showAlert("Password reset successful. Please log in.", "success");
-      }, 1200);
+        showAlert("Password reset successful. You may now log in.", "success");
+      }, 1500);
 
-    } catch (error) {
-      showResult(result, error.message);
-      button.disabled = false;
+    } catch (err) {
+      if (resultBox) {
+        resultBox.className = "alert-box error show";
+        resultBox.innerText = err.message;
+      }
+      if (applyBtn) applyBtn.disabled = false;
     }
   });
 
-  // ==========================================================
-  // 13. CONTACT ADMINISTRATOR
-  // ==========================================================
-
+  // --- 2. Contact Administrator Submission ---
   document.getElementById("btnSubmitContact")?.addEventListener("click", async () => {
     const name = document.getElementById("inputContactName")?.value.trim();
     const email = document.getElementById("inputContactEmail")?.value.trim();
     const clearance = document.getElementById("selectClearance")?.value;
     const reason = document.getElementById("inputContactReason")?.value.trim();
-
-    const result = document.getElementById("contactResultBox");
-    const button = document.getElementById("btnSubmitContact");
+    const resultBox = document.getElementById("contactResultBox");
+    const submitBtn = document.getElementById("btnSubmitContact");
 
     if (!name || name.length < 2) {
-      showResult(result, "Please enter your full name.");
+      if (resultBox) {
+        resultBox.className = "alert-box error show";
+        resultBox.innerText = "Please enter your full name.";
+      }
       return;
     }
 
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      showResult(result, "Please enter a valid email address.");
+      if (resultBox) {
+        resultBox.className = "alert-box error show";
+        resultBox.innerText = "Please enter a valid corporate work email address.";
+      }
       return;
     }
 
     if (!reason || reason.length < 10) {
-      showResult(result, "Please provide a reason of at least 10 characters.");
+      if (resultBox) {
+        resultBox.className = "alert-box error show";
+        resultBox.innerText = "Please enter a justification of at least 10 characters.";
+      }
       return;
     }
 
-    button.disabled = true;
+    if (submitBtn) submitBtn.disabled = true;
 
     try {
-      const data = await apiRequest("/api/auth/contact-admin", {
+      const resp = await fetch(`${API_BASE}/api/auth/contact-admin`, {
         method: "POST",
-        body: JSON.stringify({
-          name,
-          email,
-          clearance_level: clearance,
-          reason
-        })
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email, clearance_level: clearance, reason })
       });
+      const data = await resp.json();
 
-      showResult(
-        result,
-        data.ticket_id
-          ? `Access request submitted. Ticket ID: ${data.ticket_id}`
-          : data.message || "Request submitted successfully.",
-        "success"
-      );
+      if (!resp.ok) throw new Error(data.detail || "Request submission failed.");
 
-      button.textContent = "Submitted";
-
-    } catch (error) {
-      showResult(result, error.message);
-      button.disabled = false;
+      if (resultBox) {
+        resultBox.className = "alert-box success show";
+        resultBox.innerHTML = `
+          <div>
+            <strong>✓ Access Clearance Ticket Created:</strong><br>
+            Ticket ID: <code>${data.ticket_id}</code><br>
+            Notification forwarded to SOC Operations Supervisor.
+          </div>
+        `;
+      }
+      if (submitBtn) submitBtn.innerText = "Submitted";
+    } catch (err) {
+      if (resultBox) {
+        resultBox.className = "alert-box error show";
+        resultBox.innerText = err.message;
+      }
+      if (submitBtn) submitBtn.disabled = false;
     }
   });
 
-  // ==========================================================
-  // 14. GOOGLE SSO CONFIRMATION
-  // ==========================================================
+  // --- 3. Google Workspace SSO Handler with OAuth 2.0 Inspection ---
+  // When Google button is clicked, check live OAuth configuration
+  document.getElementById("btnGoogleLogin")?.addEventListener("click", async () => {
+    try {
+      const resp = await fetch(`${API_BASE}/api/auth/oauth/google/url`);
+      const data = await resp.json();
+      const badgeText = document.getElementById("googleConfigBadgeText");
+      const descEl = document.getElementById("googleModalDescription");
+      const confirmBtn = document.getElementById("btnConfirmGoogleSSO");
+
+      if (data.is_configured) {
+        if (badgeText) badgeText.innerText = "OAuth 2.0 Status: Live Google Cloud Connected";
+        if (descEl) descEl.innerText = "Google Workspace enterprise integration is active. You will be redirected to Google for secure single sign-on.";
+        if (confirmBtn) {
+          confirmBtn.innerText = "Proceed to Google Sign-In";
+          confirmBtn.onclick = () => { window.location.href = data.auth_url; };
+        }
+      } else {
+        if (badgeText) badgeText.innerText = "OAuth 2.0 Status: Sandbox Simulation Mode";
+        if (descEl) descEl.innerText = "Google Client credentials are unconfigured in environment (GOOGLE_CLIENT_ID). Click below to launch a transparent developer sandbox demo session tagged [DEMO SIMULATION].";
+        if (confirmBtn) {
+          confirmBtn.innerText = "Launch Sandbox Demo ([DEMO SIMULATION])";
+        }
+      }
+    } catch (_) {}
+  });
 
   document.getElementById("btnConfirmGoogleSSO")?.addEventListener("click", async () => {
-    const result = document.getElementById("googleResultBox");
-    const button = document.getElementById("btnConfirmGoogleSSO");
+    const resultBox = document.getElementById("googleResultBox");
+    const confirmBtn = document.getElementById("btnConfirmGoogleSSO");
 
-    if (button.disabled) return;
-
-    button.disabled = true;
+    if (confirmBtn) confirmBtn.disabled = true;
 
     try {
-      const data = await apiRequest("/api/auth/google", {
+      const resp = await fetch(`${API_BASE}/api/auth/google`, {
         method: "POST",
-        body: JSON.stringify({
-          requested_email: "analyst.google@soc-siem.cloud"
-        })
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requested_email: "analyst.google@soc-siem.cloud" })
       });
+      const data = await resp.json();
 
-      if (!data.session_token) {
-        throw new Error("Backend did not return a session token.");
+      if (!resp.ok) throw new Error(data.detail || "Google SSO authorization failed.");
+
+      // Store session
+      sessionStorage.setItem("siem_auth_token", data.session_token);
+      sessionStorage.setItem("siem_operator", JSON.stringify(data.user));
+
+      if (resultBox) {
+        resultBox.className = "alert-box success show";
+        resultBox.innerHTML = `<div><strong>✓ ${data.status === 'DEMO_SIMULATION' ? 'Sandbox Demo Session Active:' : 'Google SSO Verified:'}</strong> ${data.message}</div>`;
       }
 
-      sessionStorage.setItem("siem_auth_token", data.session_token);
-      sessionStorage.setItem(
-        "siem_operator",
-        JSON.stringify(data.user || {})
-      );
-
-      showResult(
-        result,
-        data.message || "Google authentication successful.",
-        "success"
-      );
-
       setTimeout(() => {
-        closeModal(modalGoogle);
+        const modalGoogle = document.getElementById("modalGoogleSSO");
+        if (modalGoogle) modalGoogle.classList.remove("open");
         playSuccessTransitionAndRedirect();
       }, 700);
 
-    } catch (error) {
-      showResult(result, error.message);
-      button.disabled = false;
+    } catch (err) {
+      if (resultBox) {
+        resultBox.className = "alert-box error show";
+        resultBox.innerText = err.message;
+      }
+      if (confirmBtn) confirmBtn.disabled = false;
     }
   });
 }

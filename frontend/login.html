@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AI SIEM SOC | Security Information and Event Management Login</title>
-  <link rel="stylesheet" href="css/login.css">
+  <link rel="stylesheet" href="/static/css/login.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2300E5FF'><path d='M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-1 6h2v2h-2V7zm0 4h2v6h-2v-6z'/></svg>">
 </head>
 <body>
@@ -272,12 +272,23 @@
             <a href="#" id="linkContactAdmin">Contact Administrator</a>
           </div>
 
-          <!-- Quick Demo Credentials Helper Bar -->
-          <div class="demo-pill-bar">
-            <div class="demo-pill-info">
-              <span>Demo: <strong>admin@soc.ai</strong></span>
+          <!-- Role-Based Quick Demo Credentials Helper Bar (Testing / Demo Environment Only) -->
+          <div class="demo-pill-bar" id="demoCredentialsBar" style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700;">
+              🛡️ Testing Environment Only — Demo Operator Profiles
             </div>
-            <button type="button" id="btnQuickFill" class="btn-quick-fill">⚡ Quick-Fill Demo</button>
+            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+              <div class="demo-pill-info">
+                <span>Role: <strong>Head of SOC</strong></span>
+              </div>
+              <button type="button" id="btnQuickFill" class="btn-quick-fill">⚡ Fill Head of SOC</button>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+              <div class="demo-pill-info">
+                <span>Role: <strong>Security Analyst</strong></span>
+              </div>
+              <button type="button" id="btnQuickFillAnalyst" class="btn-quick-fill" style="background: rgba(40, 123, 255, 0.15); border-color: rgba(40, 123, 255, 0.4); color: #70b0ff;">⚡ Fill Analyst</button>
+            </div>
           </div>
 
         </div>
@@ -481,6 +492,6 @@
   </div>
 
   <!-- JavaScript Controller -->
-  <script type="module" src="js/login.js"></script>
+  <script type="module" src="/static/js/login.js"></script>
 </body>
 </html>

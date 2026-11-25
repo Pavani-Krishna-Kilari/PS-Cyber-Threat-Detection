@@ -44,7 +44,8 @@ REQUIRED_FLOW_COLUMNS = {
 
 # Forbidden columns that must NEVER be fed to model feature generation
 FORBIDDEN_COLUMNS = {
-    "label", "label_original", "target_binary", "target_multiclass", "attack_type"
+    "label", "label_original", "target_binary", "target_multiclass", "attack_type",
+    "actual_label", "threat_type"
 }
 
 # Supported partition names for benchmark replay

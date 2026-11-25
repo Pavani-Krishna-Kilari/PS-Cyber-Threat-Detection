@@ -63,6 +63,10 @@
         <span class="nav-icon">🌲</span>
         <span>Anomaly Detection</span>
       </a>
+      <a class="nav-item head-of-soc-feature" data-view="view-drift" id="navDrift" style="display: none;">
+        <span class="nav-icon">📊</span>
+        <span>Data Drift</span>
+      </a>
       <a class="nav-item" data-view="view-history">
         <span class="nav-icon">📜</span>
         <span>Detection History</span>
@@ -79,6 +83,7 @@
 
     <div class="sidebar-footer">
       <span>SIEM v1.0 • CICIDS2017</span>
+      <div id="sidebarRoleLabel" style="font-size: 11px; color: var(--accent-cyan); font-weight: 600; margin: 4px 0;">Role: Head of SOC</div>
       <button class="theme-toggle-btn" id="themeToggleBtn">☀️ Light Mode</button>
       <a href="/login" target="_top" class="nav-item" style="margin-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 8px; color: var(--accent-cyan); text-decoration: none; display: flex; align-items: center; gap: 8px; font-size: 13px;">
         <span>🔐</span>
@@ -110,6 +115,7 @@
         <div class="telemetry-pill" id="operatorAuthPill" style="display: flex; align-items: center; gap: 8px;">
           <span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #00E5FF; box-shadow: 0 0 6px #00E5FF;"></span>
           <span id="operatorDisplayName" style="font-weight: 600; color: #fff;">Lead SOC Analyst</span>
+          <span class="badge badge-threat" id="operatorRoleBadge" style="font-size: 10px; padding: 2px 7px; text-transform: uppercase;">Head of SOC</span>
           <a href="/login" id="btnAuthAction" style="font-size: 11px; color: var(--accent-cyan); text-decoration: none; padding: 2px 7px; border: 1px solid rgba(0, 229, 255, 0.3); border-radius: 4px; margin-left: 2px; transition: all 0.2s;">Sign Out</a>
         </div>
       </div>
@@ -127,6 +133,21 @@
             <span style="font-weight: 600; color: var(--text-primary);" id="socBatchNoticeText">No uploaded dataset has been analysed yet. Upload a CSV in Threat Analyzer to view batch classification statistics.</span>
           </div>
           <span class="badge badge-info" id="socBatchNoticeBadge">Awaiting CSV Upload</span>
+        </div>
+
+        <!-- Dual-Layer Data Drift Recommendation Alert Banner (Head of SOC Only) -->
+        <div id="socDriftAlertBanner" class="batch-status-panel head-of-soc-feature" style="margin-bottom: 20px; display: none; align-items: center; justify-content: space-between; border-left: 4px solid var(--accent-red); background: rgba(255, 77, 77, 0.08); flex-wrap: wrap; gap: 12px; padding: 14px 18px; border-radius: var(--radius-sm);">
+          <div style="display: flex; align-items: center; gap: 12px; flex: 1; min-width: 280px;">
+            <div style="font-size: 24px; line-height: 1;">⚠️</div>
+            <div>
+              <div style="font-weight: 700; color: var(--accent-red); font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;" id="socDriftAlertTitle">Training Dataset Update Recommended</div>
+              <div style="font-size: 13px; color: var(--text-primary); margin-top: 3px;" id="socDriftAlertText">Significant distribution drift detected between training baselines and newly ingested traffic.</div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span class="badge badge-danger" id="socDriftBadge" style="font-size: 12px; padding: 4px 10px; font-weight: 700;">DRIFT: 0.0% (SIGNIFICANT)</span>
+            <button class="btn btn-secondary" id="btnViewDriftDetails" style="font-size: 11px; padding: 5px 12px; border-color: rgba(255,255,255,0.2);">Inspect Drift Analysis</button>
+          </div>
         </div>
 
         <div class="grid-cards">
@@ -149,6 +170,11 @@
             <div class="card-label">Unmatched / Invalid Records</div>
             <div class="card-value" id="kpiInvalidRecords">0</div>
             <div class="card-subtext highlight-amber" id="kpiInvalidRecordsSub">0 malformed rows</div>
+          </div>
+          <div class="card head-of-soc-feature" id="kpiDriftCard" style="cursor: pointer; display: none;" title="Click to view Dual-Layer Data Drift Analytics">
+            <div class="card-label">Data Drift Status</div>
+            <div class="card-value" id="socKpiDriftScore" style="color: var(--accent-cyan); font-family: var(--font-mono);">-</div>
+            <div class="card-subtext highlight-cyan" id="socKpiDriftSubtitle">Evaluating baseline...</div>
           </div>
         </div>
 
@@ -663,38 +689,46 @@
           <div class="card">
             <div class="card-header">
               <div class="card-title">Soft-Voting Ensemble Configuration &amp; Calibrated Thresholds</div>
-              <span class="badge badge-info">SOC Dynamic Tuning</span>
+              <span class="badge badge-info">Calibrated Configuration</span>
             </div>
-            <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">
-              Tune individual model voting weights and unified alert threshold. Calibrated specifically for Experiment B.
+            <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px; line-height: 1.5;">
+              The ensemble combines predictions from FCNN, CNN and LSTM using fixed calibrated weights. The alert threshold is derived from validation data. These settings are read-only to maintain consistent detection behaviour.
             </p>
-            <div class="form-group">
-              <label>FCNN Weight: <span class="slider-val" id="valWeightFcnn">0.33</span> (Calibrated Submodel τ = 0.8582)</label>
-              <div class="slider-container">
-                <input type="range" id="sliderWeightFcnn" min="0" max="1" step="0.05" value="0.33">
-              </div>
+            <div class="table-responsive">
+              <table class="soc-table" id="tableEnsembleConfig" style="font-size: 12.5px;">
+                <thead>
+                  <tr>
+                    <th>Configuration</th>
+                    <th style="text-align: right;">Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>FCNN Weight</td>
+                    <td style="text-align: right;"><code id="cfgFcnnWeight">0.33</code></td>
+                  </tr>
+                  <tr>
+                    <td>CNN Weight</td>
+                    <td style="text-align: right;"><code id="cfgCnnWeight">0.33</code></td>
+                  </tr>
+                  <tr>
+                    <td>LSTM Weight</td>
+                    <td style="text-align: right;"><code id="cfgLstmWeight">0.33</code></td>
+                  </tr>
+                  <tr>
+                    <td>Ensemble Alert Threshold</td>
+                    <td style="text-align: right;"><strong id="cfgEnsembleThreshold" style="color: var(--accent-cyan); font-family: var(--font-mono);">0.6561</strong></td>
+                  </tr>
+                  <tr>
+                    <td>Isolation Forest Threshold</td>
+                    <td style="text-align: right;"><strong id="cfgIsoThreshold" style="color: var(--accent-purple); font-family: var(--font-mono);">-0.012676</strong></td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
-            <div class="form-group">
-              <label>1D-CNN Weight: <span class="slider-val" id="valWeightCnn">0.33</span> (Calibrated Submodel τ = 0.3439)</label>
-              <div class="slider-container">
-                <input type="range" id="sliderWeightCnn" min="0" max="1" step="0.05" value="0.33">
-              </div>
-            </div>
-            <div class="form-group">
-              <label>LSTM Weight: <span class="slider-val" id="valWeightLstm">0.33</span> (Calibrated Submodel τ = 0.7663)</label>
-              <div class="slider-container">
-                <input type="range" id="sliderWeightLstm" min="0" max="1" step="0.05" value="0.33">
-              </div>
-            </div>
-            <div class="form-group">
-              <label>Ensemble Alert Threshold (τ): <span class="slider-val" id="valThreshold">0.6561</span></label>
-              <div class="slider-container">
-                <input type="range" id="sliderThreshold" min="0.10" max="0.99" step="0.005" value="0.6561">
-              </div>
-            </div>
-            <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px;">
-              <button class="btn btn-primary" id="btnApplyEnsemble">💾 Apply Ensemble Parameters</button>
-              <span style="font-size: 11px; color: var(--text-muted);">Isolation Forest τ = -0.012676</span>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+              <span>Submodel τ: FCNN=0.8582 • 1D-CNN=0.3439 • LSTM=0.7663</span>
+              <span>Experiment B Baseline</span>
             </div>
           </div>
         </div>
@@ -728,73 +762,50 @@
         </div>
 
         <div class="grid-2col" style="margin-top: 16px;">
-          <!-- Interactive Anomaly Sandbox -->
+          <!-- Automated Isolation Forest Detection Pipeline -->
           <div class="card">
             <div class="card-header">
-              <div class="card-title">Isolation Forest Anomaly Sandbox</div>
-              <span class="badge badge-info">Zero-Day Evaluation</span>
+              <div class="card-title">Automated Isolation Forest Detection Pipeline</div>
+              <span class="badge badge-normal">Autonomous Inference</span>
             </div>
-            <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">
-              Test 8-dimensional profile vectors against the trained Isolation Forest (Threshold: <code id="isoThreshDisplay">-0.012676</code>).
+            <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 14px;">
+              Unsupervised anomaly detector evaluating eight-dimensional event profiles against the calibrated decision boundary (Cutoff Threshold: <code id="isoThreshDisplay">-0.012676</code>).
             </p>
-            <div class="btn-group" style="margin-bottom: 14px;">
-              <button class="btn btn-secondary" id="btnIsoNormal" type="button">🟢 Normal (All 0.0)</button>
-              <button class="btn btn-secondary" id="btnIsoAttack" type="button">🔴 Patator Vector</button>
-              <button class="btn btn-secondary" id="btnIsoOutlier" type="button">⚠️ Outlier Vector</button>
+
+            <div style="background: rgba(0, 229, 255, 0.04); border: 1px solid rgba(0, 229, 255, 0.15); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 14px;">
+              <div style="font-size: 12px; font-weight: 700; color: var(--accent-cyan); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">
+                ⚙️ Automated Ingestion-to-Detection Pipeline
+              </div>
+              <ol style="margin: 0 0 0 16px; padding: 0; font-size: 12px; color: var(--text-secondary); line-height: 1.7;">
+                <li><strong style="color: var(--text-primary);">Traffic Ingestion:</strong> Ingested network flows are partitioned into sliding temporal windows.</li>
+                <li><strong style="color: var(--text-primary);">Automated Feature Engineering:</strong> Event sets are transformed via TF-IDF weighting and basepoint similarity mappings into canonical 8-dimensional profile vectors (<code>bp_01</code> to <code>bp_08</code>).</li>
+                <li><strong style="color: var(--text-primary);">Unsupervised Tree Traversal:</strong> Profiles stream directly into the trained 100-tree Isolation Forest to compute path lengths and anomaly scores.</li>
+                <li><strong style="color: var(--text-primary);">Zero-Day Verdict Generation:</strong> Flows exceeding calibrated cutoff &tau;<sub>iso</sub> are flagged as Anomalous, defending against unknown exploits without manual tuning.</li>
+              </ol>
             </div>
 
-            <form id="anomalyForm">
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                <div class="form-group">
-                  <label>bp_01 (High Flow Rate)</label>
-                  <input type="number" step="0.01" min="0" max="1" class="form-input" id="isoBp1" value="0.0">
-                </div>
-                <div class="form-group">
-                  <label>bp_02 (Low Activity)</label>
-                  <input type="number" step="0.01" min="0" max="1" class="form-input" id="isoBp2" value="0.0">
-                </div>
-                <div class="form-group">
-                  <label>bp_03 (SYN Activity)</label>
-                  <input type="number" step="0.01" min="0" max="1" class="form-input" id="isoBp3" value="0.0">
-                </div>
-                <div class="form-group">
-                  <label>bp_04 (Medium Flow)</label>
-                  <input type="number" step="0.01" min="0" max="1" class="form-input" id="isoBp4" value="0.0">
-                </div>
-                <div class="form-group">
-                  <label>bp_05 (High Packet/Byte)</label>
-                  <input type="number" step="0.01" min="0" max="1" class="form-input" id="isoBp5" value="0.0">
-                </div>
-                <div class="form-group">
-                  <label>bp_06 (Burst Handshake)</label>
-                  <input type="number" step="0.01" min="0" max="1" class="form-input" id="isoBp6" value="0.0">
-                </div>
-                <div class="form-group">
-                  <label>bp_07 (Short Duration)</label>
-                  <input type="number" step="0.01" min="0" max="1" class="form-input" id="isoBp7" value="0.0">
-                </div>
-                <div class="form-group">
-                  <label>bp_08 (Long Active Flow)</label>
-                  <input type="number" step="0.01" min="0" max="1" class="form-input" id="isoBp8" value="0.0">
-                </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 11.5px; margin-bottom: 14px;">
+              <div style="background: var(--bg-surface); padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+                <div style="color: var(--text-muted); font-size: 11px;">Algorithm</div>
+                <div style="font-weight: 600; color: var(--text-primary); margin-top: 2px;">Isolation Forest (iForest)</div>
               </div>
+              <div style="background: var(--bg-surface); padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+                <div style="color: var(--text-muted); font-size: 11px;">Ensemble Size</div>
+                <div style="font-weight: 600; color: var(--text-primary); margin-top: 2px;">100 Isolation Trees</div>
+              </div>
+              <div style="background: var(--bg-surface); padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+                <div style="color: var(--text-muted); font-size: 11px;">Input Feature Vector</div>
+                <div style="font-weight: 600; color: var(--accent-cyan); margin-top: 2px;">8-D Basepoint Similarity Profile</div>
+              </div>
+              <div style="background: var(--bg-surface); padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+                <div style="color: var(--text-muted); font-size: 11px;">Calibration Strategy</div>
+                <div style="font-weight: 600; color: var(--accent-green); margin-top: 2px;">99th Percentile Normal Control (FPR &le; 1%)</div>
+              </div>
+            </div>
 
-              <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center; margin-top: 10px;">
-                🌲 Compute Anomaly Score
-              </button>
-            </form>
-
-            <div id="isoVerdictCard" class="verdict-box normal" style="margin-top: 14px; padding: 14px;">
-              <div class="verdict-label-group">
-                <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted)">Isolation Forest Verdict</div>
-                <div class="verdict-title" id="isoVerdictTitle" style="font-size: 20px;">NORMAL</div>
-              </div>
-              <div style="text-align: right;">
-                <div style="font-size: 11px; color: var(--text-secondary)">Anomaly Score / Cutoff</div>
-                <div style="font-size: 16px; font-weight: 700; font-family: var(--font-mono); color: var(--accent-cyan);" id="isoScoreValue">
-                  -0.1250 <span style="font-size: 12px; color: var(--text-muted)">/ -0.012676</span>
-                </div>
-              </div>
+            <div style="padding: 10px 12px; background: rgba(0, 230, 118, 0.06); border-left: 3px solid var(--accent-green); border-radius: var(--radius-sm); font-size: 11.5px; color: var(--text-secondary); line-height: 1.5;">
+              <strong style="color: var(--accent-green);">Autonomous Coordinate Generation:</strong>
+              Profile coordinates (<code>bp_01</code> through <code>bp_08</code>) are computed systematically by the event-profile engine from raw traffic flows. Manual coordinate entry and manipulation are completely disabled to guarantee data integrity and authentic SIEM telemetry.
             </div>
           </div>
 
@@ -842,6 +853,387 @@
             <div style="margin-top: 12px; padding: 12px; background: var(--bg-surface); border-radius: var(--radius-sm); border: 1px solid var(--border-color); font-size: 12px; line-height: 1.6;">
               <strong style="color: var(--accent-cyan);">SOC Hybrid Benefit:</strong>
               While supervised neural models require prior labels of attack patterns, the Isolation Forest operates fully unsupervised, providing defense-in-depth against zero-day protocol exploits and stealthy low-and-slow brute-force attempts.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- =========================================================================
+           SECTION: DUAL-LAYER DATA DRIFT DETECTION & MODEL HEALTH MONITOR (HEAD OF SOC ONLY)
+           ========================================================================= -->
+      <section id="view-drift" class="tab-view head-of-soc-feature">
+        <!-- Head of SOC Sub-Navigation Bar -->
+        <div class="drift-subnav-bar" style="display: flex; gap: 12px; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;">
+          <button class="btn btn-primary" id="btnSubnavDriftTelemetry" type="button" style="display: flex; align-items: center; gap: 8px;">
+            <span>📊</span>
+            <span>Data Drift Telemetry &amp; Baseline Health</span>
+          </button>
+          <button class="btn btn-secondary" id="btnSubnavTrainingStudio" type="button" style="display: flex; align-items: center; gap: 8px;">
+            <span>⚙️</span>
+            <span>Training Dataset Management &amp; Candidate Studio</span>
+          </button>
+        </div>
+
+        <!-- Subview 1: Data Drift Telemetry & Health -->
+        <div id="driftTelemetryContainer">
+          <!-- Top Recommendation Alert Banner -->
+          <div id="driftPageAlertBanner" class="batch-status-panel" style="margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; border-left: 4px solid var(--accent-cyan); background: rgba(0, 229, 255, 0.08); flex-wrap: wrap; gap: 12px; padding: 14px 18px; border-radius: var(--radius-sm);">
+            <div>
+              <div style="font-weight: 700; color: var(--accent-cyan); font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;" id="driftPageAlertTitle">Data Drift Monitor Active</div>
+              <div style="font-size: 13px; color: var(--text-primary); margin-top: 3px;" id="driftPageAlertText">Evaluating distribution alignment against baseline training distributions.</div>
+              <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 4px;" id="driftPageTargetMeta">Baseline: Experiment B (Full Population) • No active session evaluated yet.</div>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <span class="badge badge-info" id="driftPageOverallBadge" style="font-size: 13px; padding: 5px 12px; font-weight: 700;">DRIFT: 0.0% (LOW)</span>
+              <button class="btn btn-secondary" id="btnRefreshDriftPage" style="font-size: 11px; padding: 5px 12px;">🔄 Refresh Drift</button>
+            </div>
+          </div>
+
+          <!-- 5-Card Drift Summary Metrics Grid -->
+          <div class="grid-cards">
+            <div class="card">
+              <div class="card-label">Overall Drift Score</div>
+              <div class="card-value" id="driftPageOverallScore" style="color: var(--accent-cyan); font-family: var(--font-mono);">-</div>
+              <div class="card-subtext highlight-cyan" id="driftPageOverallStatus">Status: Awaiting Data</div>
+            </div>
+            <div class="card">
+              <div class="card-label">Layer 1: Network Features</div>
+              <div class="card-value" id="driftPageL1Score" style="color: var(--accent-cyan); font-family: var(--font-mono);">-</div>
+              <div class="card-subtext highlight-cyan" id="driftPageL1Sub">4 continuous features</div>
+            </div>
+            <div class="card">
+              <div class="card-label">Layer 2: Event Profiles</div>
+              <div class="card-value" id="driftPageL2Score" style="color: var(--accent-purple); font-family: var(--font-mono);">-</div>
+              <div class="card-subtext highlight-purple">8 basepoint dimensions</div>
+            </div>
+            <div class="card">
+              <div class="card-label">Reference Baseline</div>
+              <div class="card-value" id="driftPageRefPop" style="font-size: 16px; font-weight: 700; color: var(--text-primary); margin-top: 4px;">Exp B (Full)</div>
+              <div class="card-subtext highlight-green" id="driftPageRefMeta">2,836 profiles • 4 features</div>
+            </div>
+            <div class="card">
+              <div class="card-label">Evaluated Session</div>
+              <div class="card-value" id="driftPageSessionId" style="font-size: 12.5px; font-family: var(--font-mono); font-weight: 600; color: var(--text-primary); margin-top: 6px; word-break: break-all;">-</div>
+              <div class="card-subtext highlight-amber" id="driftPageTimestamp">-</div>
+            </div>
+          </div>
+
+          <!-- Layer 1 Table: Network Features Drift Breakdown -->
+          <div class="card" style="margin-bottom: 24px;">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Layer 1: Raw Network Feature Drift Breakdown</div>
+                <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">Continuous flow statistics monitored against Experiment B baseline using PSI, Two-Sample KS, and Normalized Wasserstein distance</div>
+              </div>
+              <span class="badge badge-info" id="driftPageL1Badge">4 Monitored Features</span>
+            </div>
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Feature Name</th>
+                    <th>Observed Mean ± Std</th>
+                    <th>Baseline Mean ± Std</th>
+                    <th>PSI Score</th>
+                    <th>KS Statistic (p-val)</th>
+                    <th>Wasserstein (Norm)</th>
+                    <th>Feature Drift Score</th>
+                  </tr>
+                </thead>
+                <tbody id="driftPageL1TableBody">
+                  <tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 16px;">No layer 1 network feature drift data available. Upload a network flow CSV to calculate layer 1 drift.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Layer 2 Table: Event Profile 8D Basepoint Drift Breakdown -->
+          <div class="card" style="margin-bottom: 24px;">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Layer 2: Event Profile Drift Breakdown (8 Basepoint Dimensions)</div>
+                <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">8-dimensional behavioral profile distributions monitored against fitted TF-IDF & basepoints baseline</div>
+              </div>
+              <span class="badge badge-purple" id="driftPageL2Badge">8 Basepoint Dimensions</span>
+            </div>
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Basepoint Dimension</th>
+                    <th>Observed Mean ± Std</th>
+                    <th>Baseline Mean ± Std</th>
+                    <th>PSI Score</th>
+                    <th>KS Statistic (p-val)</th>
+                    <th>Wasserstein (Norm)</th>
+                    <th>Dimension Drift Score</th>
+                  </tr>
+                </thead>
+                <tbody id="driftPageL2TableBody">
+                  <tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 16px;">No layer 2 event profile drift data available. Upload network traffic or event profiles to calculate layer 2 drift.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Dominant Basepoint Categorical Shift & Divergence -->
+          <div class="card" style="margin-bottom: 24px;">
+            <div class="card-header">
+              <div class="card-title">Dominant Behavioral Basepoint Distribution Shift</div>
+              <div style="display: flex; gap: 16px; font-size: 12px;">
+                <span><strong>JS Divergence:</strong> <span id="driftPageJSD" style="font-family: var(--font-mono); color: var(--accent-cyan);">-</span></span>
+                <span><strong>JS Distance (Normalized):</strong> <span id="driftPageJSDist" style="font-family: var(--font-mono); color: var(--accent-cyan);">-</span></span>
+              </div>
+            </div>
+            <div id="driftPageDominantBars" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; padding: 12px 0;">
+              <div style="color: var(--text-muted); font-size: 12px;">Awaiting drift evaluation data to render basepoint distribution bars...</div>
+            </div>
+          </div>
+
+          <!-- Historical Drift Evaluations Table -->
+          <div class="card" style="margin-bottom: 24px;">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Drift Evaluation History Across Ingestion Sessions</div>
+                <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">Persistent audit trail of statistical drift evaluations recorded in SQLite</div>
+              </div>
+              <span class="badge badge-info" id="driftPageHistoryBadge">0 Evaluations</span>
+            </div>
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>Session ID</th>
+                    <th>Upload ID</th>
+                    <th>Overall Drift</th>
+                    <th>Layer 1 (Flows)</th>
+                    <th>Layer 2 (Profiles)</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="driftPageHistoryTableBody">
+                  <tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 16px;">No drift evaluation history found.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div> <!-- End of #driftTelemetryContainer -->
+
+        <!-- ===================================================================
+             SUBVIEW 2: HEAD OF SOC TRAINING DATASET MANAGEMENT & CANDIDATE STUDIO
+             =================================================================== -->
+        <div id="trainingStudioContainer" style="display: none;">
+          <!-- Top Studio Status & Safety Notice Banner -->
+          <div class="batch-status-panel" style="margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; border-left: 4px solid var(--accent-purple); background: rgba(139, 53, 255, 0.08); flex-wrap: wrap; gap: 12px; padding: 14px 18px; border-radius: var(--radius-sm);">
+            <div>
+              <div style="font-weight: 700; color: var(--accent-purple); font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;">Supervisory Model &amp; Training Dataset Studio</div>
+              <div style="font-size: 13px; color: var(--text-primary); margin-top: 3px;">
+                Evaluate newly validated network datasets in an isolated training sandbox. Candidate training never overwrites active models.
+              </div>
+              <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 4px;">
+                Active Model: <strong id="studioActiveModelName" style="color: var(--accent-cyan);">Experiment B Baseline</strong> • Rollback Snapshots: <span id="studioBackupCount">Available</span>
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <button class="btn btn-secondary" id="btnStudioRollback" style="font-size: 11px; padding: 6px 14px; border-color: rgba(255, 77, 77, 0.4); color: var(--accent-red);">🔄 Rollback to Baseline</button>
+              <button class="btn btn-secondary" id="btnRefreshStudio" style="font-size: 11px; padding: 6px 14px;">🔄 Refresh Studio</button>
+            </div>
+          </div>
+
+          <!-- Section A: Upload & Schema Validation -->
+          <div class="card" style="margin-bottom: 24px;">
+            <div class="card-header">
+              <div>
+                <div class="card-title">1. Dataset Ingestion &amp; Schema Quality Validator</div>
+                <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
+                  Upload an event profile or network flow CSV. Validates required schema, label balance, and numerical bounds.
+                </div>
+              </div>
+              <span class="badge badge-info" id="badgeStudioValidation">Awaiting Dataset</span>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start;">
+              <!-- Upload Box -->
+              <div>
+                <div class="drop-zone" id="datasetDropZone" style="border: 2px dashed rgba(0, 229, 255, 0.35); border-radius: var(--radius-md); padding: 24px; text-align: center; cursor: pointer; transition: all var(--transition-fast); background: rgba(0, 229, 255, 0.02);">
+                  <div style="font-size: 32px; margin-bottom: 8px;">📁</div>
+                  <div style="font-weight: 600; font-size: 13.5px; margin-bottom: 4px;">Drag &amp; Drop Training Dataset CSV here</div>
+                  <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">Supports Event Profiles (bp_01..bp_08) or Network Flow traffic CSV</div>
+                  <input type="file" id="inputTrainingDatasetFile" accept=".csv" style="display: none;">
+                  <button type="button" class="btn btn-secondary" id="btnBrowseTrainingDataset" style="font-size: 11px; padding: 5px 14px;">Browse CSV File</button>
+                  <div id="selectedDatasetFilename" style="font-size: 12px; color: var(--accent-cyan); margin-top: 8px; font-weight: 600; display: none;"></div>
+                </div>
+
+                <div style="display: flex; gap: 10px; margin-top: 12px;">
+                  <button type="button" class="btn btn-primary" id="btnValidateDataset" style="flex: 1; font-size: 12px; padding: 8px 16px;">🔍 Validate Dataset Quality</button>
+                  <button type="button" class="btn btn-secondary" id="btnUploadDataset" style="flex: 1; font-size: 12px; padding: 8px 16px;" disabled>💾 Persist Validated Dataset</button>
+                </div>
+              </div>
+
+              <!-- Validation Report Output -->
+              <div id="datasetValidationReportBox" style="background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 16px; font-size: 12px; min-height: 180px;">
+                <div style="font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; font-size: 11px;">Schema Validation Report</div>
+                <div id="validationReportContent" style="color: var(--text-muted); line-height: 1.6;">
+                  No dataset uploaded yet. Select a CSV to inspect columns, data quality, and label distribution.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section B: Candidate Model Training Studio -->
+          <div class="card" style="margin-bottom: 24px;">
+            <div class="card-header">
+              <div>
+                <div class="card-title">2. Isolated Candidate Model Training</div>
+                <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
+                  Trains candidate neural models strictly inside an isolated sandbox. Calibrates optimal decision threshold on validation split.
+                </div>
+              </div>
+              <span class="badge badge-warning" id="badgeCandidateStatus">Sandbox Ready</span>
+            </div>
+
+            <div style="display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap;">
+              <div style="display: flex; flex-direction: column; gap: 6px;">
+                <div style="font-size: 13px; font-weight: 600; color: var(--text-primary);">Target Dataset: <span id="studioTargetDatasetLabel" style="color: var(--accent-cyan);">None Selected (Training Disabled)</span></div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <label for="selectTargetCandidateDataset" style="font-size: 11px; color: var(--text-muted); font-weight: 600;">Persisted Dataset:</label>
+                  <select id="selectTargetCandidateDataset" class="form-input" style="font-size: 11.5px; padding: 4px 8px; max-width: 320px;">
+                    <option value="">-- No Validated Dataset Selected --</option>
+                  </select>
+                </div>
+                <div style="font-size: 11.5px; color: var(--text-muted);">Split: 70% Train • 15% Validation (Tuning) • 15% Test (Held-Out Evaluation)</div>
+              </div>
+              <button type="button" class="btn btn-primary" id="btnTrainCandidateModel" style="font-size: 12px; padding: 8px 20px;" disabled>
+                <span id="btnTrainText">⚡ Train Candidate Model</span>
+                <span id="btnTrainSpinner" class="spinner" style="display: none; width: 14px; height: 14px; margin-left: 6px;"></span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Section C: Candidate Evaluation Metrics & Confusion Matrix -->
+          <div class="card" id="cardCandidateEvaluation" style="margin-bottom: 24px; display: none;">
+            <div class="card-header">
+              <div>
+                <div class="card-title">3. Candidate Model Evaluation Metrics (Held-Out Test Split)</div>
+                <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
+                  Performance benchmarks evaluated strictly on held-out test data. Zero data leakage.
+                </div>
+              </div>
+              <span class="badge badge-normal" id="badgeCandidateMetrics">Evaluation Complete</span>
+            </div>
+
+            <!-- 6-Metric Cards Grid -->
+            <div class="grid-cards" style="grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); margin-bottom: 20px;">
+              <div class="card" style="background: rgba(0, 229, 255, 0.05); padding: 12px;">
+                <div class="card-label">Precision</div>
+                <div class="card-value" id="valCandPrecision" style="color: var(--accent-cyan); font-size: 20px; font-family: var(--font-mono);">-</div>
+                <div class="card-subtext highlight-cyan">Positive predictive value</div>
+              </div>
+              <div class="card" style="background: rgba(16, 185, 129, 0.05); padding: 12px;">
+                <div class="card-label">Recall</div>
+                <div class="card-value" id="valCandRecall" style="color: var(--accent-green); font-size: 20px; font-family: var(--font-mono);">-</div>
+                <div class="card-subtext highlight-green">Threat detection rate</div>
+              </div>
+              <div class="card" style="background: rgba(139, 53, 255, 0.05); padding: 12px;">
+                <div class="card-label">F1-Score</div>
+                <div class="card-value" id="valCandF1" style="color: var(--accent-purple); font-size: 20px; font-family: var(--font-mono);">-</div>
+                <div class="card-subtext highlight-purple">Harmonic balance</div>
+              </div>
+              <div class="card" style="background: rgba(40, 123, 255, 0.05); padding: 12px;">
+                <div class="card-label">PR-AUC</div>
+                <div class="card-value" id="valCandPrAuc" style="color: var(--accent-blue); font-size: 20px; font-family: var(--font-mono);">-</div>
+                <div class="card-subtext highlight-blue">Precision-Recall AUC</div>
+              </div>
+              <div class="card" style="background: rgba(245, 158, 11, 0.05); padding: 12px;">
+                <div class="card-label">ROC-AUC</div>
+                <div class="card-value" id="valCandRocAuc" style="color: var(--accent-amber); font-size: 20px; font-family: var(--font-mono);">-</div>
+                <div class="card-subtext highlight-amber">Discrimination power</div>
+              </div>
+              <div class="card" style="background: rgba(239, 68, 68, 0.05); padding: 12px;">
+                <div class="card-label">False Positive Rate</div>
+                <div class="card-value" id="valCandFpr" style="color: var(--accent-red); font-size: 20px; font-family: var(--font-mono);">-</div>
+                <div class="card-subtext highlight-red">FPR (FP / [FP + TN])</div>
+              </div>
+            </div>
+
+            <!-- Confusion Matrix & Calibration Split -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+              <div>
+                <h4 style="font-size: 12px; font-weight: 700; text-transform: uppercase; margin-bottom: 8px; color: var(--accent-cyan);">Confusion Matrix (Held-Out Test Partition)</h4>
+                <div class="table-responsive">
+                  <table class="soc-table" id="tableConfusionMatrix" style="font-size: 12px; text-align: center;">
+                    <thead>
+                      <tr>
+                        <th>Ground Truth</th>
+                        <th>Predicted Benign</th>
+                        <th>Predicted Attack</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td><strong>Actual Benign</strong></td>
+                        <td id="cmTN" style="color: var(--accent-green); font-weight: 700; font-family: var(--font-mono);">-</td>
+                        <td id="cmFP" style="color: var(--accent-red); font-weight: 700; font-family: var(--font-mono);">-</td>
+                      </tr>
+                      <tr>
+                        <td><strong>Actual Attack</strong></td>
+                        <td id="cmFN" style="color: var(--accent-red); font-weight: 700; font-family: var(--font-mono);">-</td>
+                        <td id="cmTP" style="color: var(--accent-green); font-weight: 700; font-family: var(--font-mono);">-</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Supervisory Activation Authorization Box -->
+              <div style="background: rgba(139, 53, 255, 0.04); border: 1px solid rgba(139, 53, 255, 0.25); border-radius: var(--radius-md); padding: 16px;">
+                <h4 style="font-size: 12px; font-weight: 700; text-transform: uppercase; margin-bottom: 8px; color: var(--accent-purple);">4. Supervisory Authorization &amp; Model Activation</h4>
+                <p style="font-size: 11.5px; color: var(--text-secondary); margin-bottom: 12px;">
+                  Activating this candidate model requires formal Head of SOC authorization. The current active model state will be backed up automatically before deployment.
+                </p>
+                <div class="form-group" style="margin-bottom: 12px;">
+                  <label style="font-size: 11px;">Supervisory Justification Note</label>
+                  <input type="text" id="inputActivationNote" class="form-input" style="font-size: 12px; padding: 6px 10px;" placeholder="e.g. Model approved following distribution shift in PortScan profiles">
+                </div>
+                <button type="button" class="btn btn-primary" id="btnActivateCandidate" style="width: 100%; font-size: 12px; padding: 9px; background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue)); border: none;">
+                  👑 Authorize &amp; Activate Candidate Model
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section D: Candidate Models & Activation Audit Trail -->
+          <div class="card" style="margin-bottom: 24px;">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Candidate Models History &amp; Activation Audit Trail</div>
+                <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
+                  Persistent audit log of candidate models, evaluation metrics, and supervisory activation actions.
+                </div>
+              </div>
+              <span class="badge badge-info" id="badgeCandidateCount">0 Models</span>
+            </div>
+            <div class="table-responsive">
+              <table class="data-table" id="tableCandidateHistory">
+                <thead>
+                  <tr>
+                    <th>Candidate ID</th>
+                    <th>Dataset ID</th>
+                    <th>Created At</th>
+                    <th>Status</th>
+                    <th>F1-Score</th>
+                    <th>Precision</th>
+                    <th>Recall</th>
+                    <th>Approved By</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="candidateHistoryTableBody">
+                  <tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 16px;">No candidate models trained yet.</td></tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -988,6 +1380,10 @@
             <div class="card" style="padding: 10px 14px; background: rgba(255, 61, 0, 0.05); border-left: 3px solid var(--accent-red); margin: 0;">
               <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 600;">Alert Campaigns</div>
               <div id="repMetricCampaigns" style="font-size: 20px; font-weight: 700; color: var(--accent-red); font-family: var(--font-mono);">0</div>
+            </div>
+            <div class="card head-of-soc-feature" id="repMetricDriftCard" style="padding: 10px 14px; background: rgba(0, 229, 255, 0.05); border-left: 3px solid var(--accent-cyan); margin: 0; cursor: pointer; display: none;" title="Click to inspect detailed Dual-Layer Drift Report">
+              <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 600;">Data Drift</div>
+              <div id="repMetricDrift" style="font-size: 20px; font-weight: 700; color: var(--accent-cyan); font-family: var(--font-mono);">-</div>
             </div>
           </div>
 

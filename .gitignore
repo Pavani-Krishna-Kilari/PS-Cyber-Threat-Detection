@@ -1,57 +1,35 @@
-
-# Python cache
+# Python
 __pycache__/
 *.py[cod]
-
-# Virtual environments
 .venv/
 venv/
-env/
 
-# Environment secrets
+# Secrets
 .env
 .env.*
 !.env.example
 
-# Local databases
+# Datasets
+data/raw/
+data/processed/
+data/candidate_datasets/
+
+# Backups and temporary files
+backups/
+scratch/
+uploads/
+staging/
+
+# Generated model files
+models/saved*/
+models/candidates/
+*.h5
+*.keras
+*.pkl
+*.joblib
+
+# Databases and logs
+*.db
 *.sqlite
 *.sqlite3
-*.db
-
-# Editor and operating system files
-.vscode/
-.DS_Store
-Thumbs.db
-# Project backups
-backups/
-
-# Large cleaned training datasets
-data/processed/*_clean.csv
-
-# Generated training and evaluation CSVs - Experiment A
-data/processed/event_profiles_exp_a/event_profiles.csv
-data/processed/event_profiles_exp_a/event_sets.csv
-data/processed/event_profiles_exp_a/event_set_keys.csv
-data/processed/event_profiles_exp_a/event_set_targets.csv
-data/processed/event_profiles_exp_a/tfidf_event_vectors.csv
-
-# Generated training and evaluation CSVs - Experiment B
-data/processed/event_profiles_exp_b/event_profiles.csv
-data/processed/event_profiles_exp_b/event_sets.csv
-data/processed/event_profiles_exp_b/event_set_keys.csv
-data/processed/event_profiles_exp_b/event_set_targets.csv
-data/processed/event_profiles_exp_b/tfidf_event_vectors.csv
-
-# Generated training CSV
-data/processed/event_profiles/event_profiles.csv
-# Original CICIDS2017 training datasets
-data/raw/*.csv
-
-# Exclude inactive model versions
-models/saved/
-models/saved_exp_a/
-models/metrics/
-models/metrics_exp_a/
-
-# Exclude legacy generated event profiles
-data/processed/event_profiles/
+*.log

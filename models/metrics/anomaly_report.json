@@ -1,0 +1,36 @@
+{
+  "model": "Isolation Forest",
+  "trained_at": "2026-11-12 14:07:33",
+  "training_samples": 306936,
+  "validation_samples": 77285,
+  "test_samples": 86831,
+  "n_estimators": 100,
+  "max_samples": 2048,
+  "contamination": 0.005,
+  "optimal_threshold": -0.014849131224352718,
+  "validation_f1": 0.018842530282637954,
+  "metrics_on_test": {
+    "accuracy": 0.9907176008568368,
+    "precision": 0.012315270935960592,
+    "recall": 0.7142857142857143,
+    "f1_score": 0.024213075060532687,
+    "roc_auc": 0.8951291633139657,
+    "false_positive_rate": 0.009237822085536243,
+    "confusion_matrix": {
+      "tp": 10,
+      "fp": 802,
+      "tn": 86015,
+      "fn": 4,
+      "matrix": [
+        [
+          86015,
+          802
+        ],
+        [
+          4,
+          10
+        ]
+      ]
+    }
+  }
+}

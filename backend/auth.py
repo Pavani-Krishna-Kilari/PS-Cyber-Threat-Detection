@@ -110,6 +110,39 @@ def verify_password(password: str, stored_hash: str) -> bool:
 
 
 # -----------------------------------------------------------------------------
+# Role Definitions & Permissions
+# -----------------------------------------------------------------------------
+ROLE_HEAD_OF_SOC = "HEAD_OF_SOC"
+ROLE_SECURITY_ANALYST = "SECURITY_ANALYST"
+
+PERMISSIONS_MAP = {
+    ROLE_HEAD_OF_SOC: [
+        "view_dashboard",
+        "view_analyzer",
+        "view_profiles",
+        "view_models",
+        "view_anomaly",
+        "view_history",
+        "view_assistant",
+        "view_drift",
+        "manage_training_datasets",
+        "train_candidate_models",
+        "activate_candidate_models",
+        "activate_models",
+        "rollback_models"
+    ],
+    ROLE_SECURITY_ANALYST: [
+        "view_dashboard",
+        "view_analyzer",
+        "view_profiles",
+        "view_models",
+        "view_anomaly",
+        "view_history",
+        "view_assistant"
+    ]
+}
+
+# -----------------------------------------------------------------------------
 # Pre-configured Authorized SOC Operators (Unique Salted PBKDF2 Hashes)
 # -----------------------------------------------------------------------------
 # Pre-computed per-user salted PBKDF2-HMAC-SHA256 hashes (never plaintext)
@@ -119,8 +152,9 @@ SOC_OPERATORS: Dict[str, Dict[str, Any]] = {
         "password_hash": hash_password("CyberShield2026!", salt="soc_admin_salt_8f3a9e2c1b"),
         "name": "Alex Vance",
         "callsign": "Overwatch-1",
-        "role": "Lead SOC Architect & Threat Hunter",
-        "clearance": "Level 5 (Full Supervisory & Neural Tuning)",
+        "role_id": ROLE_HEAD_OF_SOC,
+        "role": "Head of SOC",
+        "clearance": "Level 5 (Head of SOC / Full Supervisory)",
         "avatar": "AV",
         "department": "Cyber Defense Operations Center",
         "is_demo_account": True
@@ -130,8 +164,9 @@ SOC_OPERATORS: Dict[str, Dict[str, Any]] = {
         "password_hash": hash_password("ThreatHunter2026!", salt="soc_analyst_salt_4d7e2b1c9a"),
         "name": "Elena Rostova",
         "callsign": "Sentinel-4",
-        "role": "Senior Security Analyst (Tier 2/3)",
-        "clearance": "Level 4 (Inference & Campaign Triage)",
+        "role_id": ROLE_SECURITY_ANALYST,
+        "role": "Regular Security Analyst",
+        "clearance": "Level 3 (Security Analyst)",
         "avatar": "ER",
         "department": "SOC Incident Analytics",
         "is_demo_account": True
@@ -141,8 +176,9 @@ SOC_OPERATORS: Dict[str, Dict[str, Any]] = {
         "password_hash": hash_password("SiemOperator2026!", salt="soc_oper_salt_7a2f5e8d3c"),
         "name": "Marcus Kane",
         "callsign": "Vanguard-2",
-        "role": "SOC Telemetry Operator (Tier 1)",
-        "clearance": "Level 2 (Telemetry Monitoring & Ingestion)",
+        "role_id": ROLE_SECURITY_ANALYST,
+        "role": "Regular Security Analyst",
+        "clearance": "Level 2 (Telemetry Ingestion)",
         "avatar": "MK",
         "department": "Continuous Stream Monitoring",
         "is_demo_account": True
@@ -326,15 +362,20 @@ def authenticate_operator(
     expiry_time = time.time() + (validity_hours * 3600)
     expiry_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(expiry_time))
 
+    role_id = operator.get("role_id", ROLE_SECURITY_ANALYST)
+    perms = PERMISSIONS_MAP.get(role_id, PERMISSIONS_MAP[ROLE_SECURITY_ANALYST])
+
     session_data = {
         "token": token,
         "email": operator["email"],
         "name": operator["name"],
         "callsign": operator["callsign"],
+        "role_id": role_id,
         "role": operator["role"],
         "clearance": operator["clearance"],
         "department": operator["department"],
         "avatar": operator["avatar"],
+        "permissions": perms,
         "remember_me": remember_me,
         "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "expires_at": expiry_str,
@@ -357,10 +398,12 @@ def authenticate_operator(
             "email": operator["email"],
             "name": operator["name"],
             "callsign": operator["callsign"],
+            "role_id": role_id,
             "role": operator["role"],
             "clearance": operator["clearance"],
             "department": operator["department"],
-            "avatar": operator["avatar"]
+            "avatar": operator["avatar"],
+            "permissions": perms
         },
         "expires_at": expiry_str
     }
@@ -428,15 +471,20 @@ def authenticate_google_sso(
     expiry_time = time.time() + (24 * 3600)
     expiry_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(expiry_time))
 
+    role_id = ROLE_SECURITY_ANALYST
+    perms = PERMISSIONS_MAP[ROLE_SECURITY_ANALYST]
+
     session_data = {
         "token": token,
         "email": requested_email,
         "name": "Jordan Mitchell (Google Workspace SSO)",
         "callsign": "Cloud-Sentinel",
-        "role": "Enterprise SOC Threat Hunter" if is_live else "Enterprise Threat Hunter (SSO Sandbox Demo)",
+        "role_id": role_id,
+        "role": "Enterprise SOC Threat Hunter" if is_live else "Regular Security Analyst (SSO Demo)",
         "clearance": "Level 4 (SSO Federated Enterprise)",
         "department": "Global Security Operations (Cloud)",
         "avatar": "JM",
+        "permissions": perms,
         "remember_me": True,
         "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "expires_at": expiry_str,
@@ -466,10 +514,12 @@ def authenticate_google_sso(
             "email": session_data["email"],
             "name": session_data["name"],
             "callsign": session_data["callsign"],
+            "role_id": role_id,
             "role": session_data["role"],
             "clearance": session_data["clearance"],
             "department": session_data["department"],
-            "avatar": session_data["avatar"]
+            "avatar": session_data["avatar"],
+            "permissions": perms
         },
         "expires_at": expiry_str
     }
@@ -528,6 +578,73 @@ def revoke_session(token: Optional[str]) -> bool:
         except Exception:
             pass
     return revoked
+
+
+# -----------------------------------------------------------------------------
+# Role-Based Access Control (RBAC) Verification Helpers
+# -----------------------------------------------------------------------------
+def is_head_of_soc(user: Optional[Dict[str, Any]]) -> bool:
+    """Checks whether the user holds the Head of SOC role."""
+    if not user:
+        return False
+    role_id = user.get("role_id")
+    if role_id == ROLE_HEAD_OF_SOC:
+        return True
+    role_title = (user.get("role") or "").lower()
+    if "head of soc" in role_title or "lead soc architect" in role_title:
+        return True
+    email = (user.get("email") or "").lower()
+    return email == "admin@soc.ai"
+
+
+def is_security_analyst(user: Optional[Dict[str, Any]]) -> bool:
+    """Checks whether the user holds a valid security analyst role."""
+    if not user:
+        return False
+    return True
+
+
+def get_current_user_from_request(request: Request, token: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Resolves authenticated operator from query, Bearer header, or HttpOnly cookie."""
+    active_token = extract_token_from_request(request, token)
+    if not active_token:
+        return None
+    return get_current_user(active_token)
+
+
+def require_authenticated_user(request: Request, token: Optional[str] = None) -> Dict[str, Any]:
+    """Requires an authenticated session. Raises HTTP 401 if unauthenticated."""
+    user = get_current_user_from_request(request, token)
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Access Denied: Authentication required. Please provide a valid SOC session token or cookie."
+        )
+    return user
+
+
+def require_head_of_soc(request: Request, token: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Mandatory Head of SOC security gate.
+    Raises HTTP 401 if unauthenticated, HTTP 403 Forbidden if user is a Regular Security Analyst.
+    """
+    user = require_authenticated_user(request, token)
+    if not is_head_of_soc(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: Access Denied. This operation requires Head of SOC authorization."
+        )
+    return user
+
+
+def verify_drift_access(request: Request, token: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Validates role-based access for Data Drift endpoints:
+    - If unauthenticated (no token or invalid token): raises HTTP 401 Unauthorized.
+    - If user is authenticated as Regular Security Analyst: raises HTTP 403 Forbidden.
+    - If user is authenticated as Head of SOC: returns user session.
+    """
+    return require_head_of_soc(request, token)
 
 
 # -----------------------------------------------------------------------------
